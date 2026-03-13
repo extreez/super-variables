@@ -11,11 +11,12 @@ const EMOJI_LIST = [
 
 interface EmojiPickerProps {
   currentEmoji: string | null;
-  defaultLetter: string;
+  defaultLetter?: string;
+  customIcon?: React.ReactNode;
   onSelect: (emoji: string | null) => void;
 }
 
-export function EmojiPicker({ currentEmoji, defaultLetter, onSelect }: EmojiPickerProps) {
+export function EmojiPicker({ currentEmoji, defaultLetter, customIcon, onSelect }: EmojiPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -44,8 +45,10 @@ export function EmojiPicker({ currentEmoji, defaultLetter, onSelect }: EmojiPick
       >
         {currentEmoji ? (
           <span style={{ fontSize: 12, lineHeight: 1 }}>{currentEmoji}</span>
+        ) : customIcon ? (
+          <span className="shrink-0">{customIcon}</span>
         ) : (
-          <span className="text-[10px] text-[#999]">{defaultLetter}</span>
+          <span className="text-[10px] text-[#999]">{defaultLetter || '?'}</span>
         )}
       </button>
 

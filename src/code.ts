@@ -10,6 +10,19 @@ figma.showUI(__html__, {
   title: 'Super Variables',
 });
 
+// Update UI when Figma variables change
+figma.on("documentchange", async (event) => {
+  const hasVariableChanges = event.documentChanges.some(change => 
+    change.type === 'PROPERTY_CHANGE' && 
+    ((change.properties as any).includes('name') || (change.properties as any).includes('valuesByMode'))
+  );
+
+  if (hasVariableChanges) {
+    const data = await readVariables();
+    figma.ui.postMessage({ type: 'variables-loaded', payload: data });
+  }
+});
+
 // === Read variables from Figma ===
 
 async function readVariables(): Promise<VariablesPayload> {

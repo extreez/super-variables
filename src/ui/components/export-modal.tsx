@@ -55,7 +55,11 @@ export function ExportModal({ isOpen, onClose, collections, tokens }: ExportModa
       content = format === "css" ? ":root {\n" : "";
       
       activeTokens.forEach(t => {
-        const varName = t.name.replace(/\//g, groupDivider);
+        let cleanName = t.name;
+        if (cleanName.startsWith('All/')) {
+          cleanName = cleanName.substring(4);
+        }
+        const varName = cleanName.replace(/\//g, groupDivider);
         // Using first mode for "root" export
         const firstModeId = collections.find(c => c.id === t.collectionId)?.modes[0]?.modeId || '';
         const val = t.valuesByMode[firstModeId];
@@ -68,7 +72,11 @@ export function ExportModal({ isOpen, onClose, collections, tokens }: ExportModa
     } else if (format === "json") {
       const result: any = {};
       activeTokens.forEach(t => {
-        const parts = t.name.split('/');
+        let cleanName = t.name;
+        if (cleanName.startsWith('All/')) {
+          cleanName = cleanName.substring(4);
+        }
+        const parts = cleanName.split('/');
         let current = result;
         parts.forEach((p, i) => {
           if (i === parts.length - 1) {

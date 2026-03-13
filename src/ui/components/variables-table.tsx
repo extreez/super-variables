@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Search, Minimize2, Settings, Plus, History, SlidersHorizontal, Target, Link, Palette, Hash, Type, ToggleLeft, Code, Sparkles, Grid, GitBranch } from "lucide-react";
+import { Search, Minimize2, Settings, Plus, History, SlidersHorizontal, Target, Link, Palette, Hash, Type, ToggleLeft, Code, Sparkles, Grid, GitBranch, X } from "lucide-react";
 import { VariableIcon, ColorVariableIcon } from "./variable-icon";
 import type { Variable } from "./variables-data";
+import { useRef, useEffect } from "react";
 
 interface VariablesTableProps {
   variables: Variable[];
@@ -9,6 +10,9 @@ interface VariablesTableProps {
   onSelect: (id: string) => void;
   onGitSyncClick?: () => void;
   onMinimizeClick?: () => void;
+  onNavigateToTarget?: (targetId: string, fromId: string) => void;
+  navigationReturn?: { id: string, name: string } | null;
+  onClearNavigationReturn?: () => void;
 }
 
 export function VariablesTable({
@@ -17,6 +21,9 @@ export function VariablesTable({
   onSelect,
   onGitSyncClick,
   onMinimizeClick,
+  onNavigateToTarget,
+  navigationReturn,
+  onClearNavigationReturn,
 }: VariablesTableProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [columnHeaders, setColumnHeaders] = useState({
@@ -26,6 +33,53 @@ export function VariablesTable({
   const [tempHeaderValue, setTempHeaderValue] = useState("");
   const [showAddTokenMenu, setShowAddTokenMenu] = useState(false);
   const [showCreateStyleMenu, setShowCreateStyleMenu] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (selectedId && itemRefs.current[selectedId]) {
+      itemRefs.current[selectedId]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [selectedId]);
+  
+  // Column widths state
+  const [columnWidths, setColumnWidths] = useState({ name: 220, value: 220 });
+  const resizingColumn = useRef<{ key: 'name' | 'value'; startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingColumn.current) return;
+      const diff = e.clientX - resizingColumn.current.startX;
+      const newWidth = Math.max(100, resizingColumn.current.startWidth + diff);
+      
+      setColumnWidths(prev => ({
+        ...prev,
+        [resizingColumn.current!.key]: newWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      resizingColumn.current = null;
+      document.body.style.cursor = 'default';
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const startColumnResize = (key: 'name' | 'value', e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingColumn.current = {
+      key,
+      startX: e.clientX,
+      startWidth: columnWidths[key]
+    };
+    document.body.style.cursor = 'col-resize';
+  };
 
   const handleHeaderClick = (columnKey: string) => {
     if (columnKey === "name") return; // Name column is not editable
@@ -112,7 +166,10 @@ export function VariablesTable({
       </div>
 
       {/* Scrollable Container for Headers and Rows */}
-      <div className="flex-1 overflow-auto bg-white relative">
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-auto bg-white relative"
+      >
         <div className="min-w-max min-h-full flex flex-col">
           {/* Column headers */}
           <div
@@ -120,12 +177,19 @@ export function VariablesTable({
             style={{ height: 28 }}
           >
         <div
-          className="flex items-center text-[10px] text-[#999] pl-10 pr-4 uppercase tracking-wider shrink-0"
-          style={{ width: 220 }}
+          className="flex items-center text-[10px] text-[#999] pl-10 pr-4 uppercase tracking-wider shrink-0 relative"
+          style={{ width: columnWidths.name }}
         >
           Name
+          <div 
+            onMouseDown={(e) => startColumnResize('name', e)}
+            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#0d99ff] opacity-0 hover:opacity-100 transition-opacity z-20"
+          />
         </div>
-        <div className="border-l border-[#e5e5e5] flex items-center text-[10px] text-[#999] pl-4 pr-4 uppercase tracking-wider self-stretch shrink-0" style={{ width: 220 }}>
+        <div 
+          className="border-l border-[#e5e5e5] flex items-center text-[10px] text-[#999] pl-4 pr-4 uppercase tracking-wider self-stretch shrink-0 relative" 
+          style={{ width: columnWidths.value }}
+        >
           {editingColumn === "value" ? (
             <input
               type="text"
@@ -144,6 +208,10 @@ export function VariablesTable({
               {columnHeaders.value}
             </div>
           )}
+          <div 
+            onMouseDown={(e) => startColumnResize('value', e)}
+            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#0d99ff] opacity-0 hover:opacity-100 transition-opacity z-20"
+          />
         </div>
         <div className="border-l border-[#e5e5e5] self-stretch flex items-center pl-1 shrink-0">
           <button className="opacity-0 group-hover/header:opacity-100 transition-opacity text-[#999] hover:text-[#333] cursor-pointer p-0.5" title="Add mode">
@@ -153,108 +221,180 @@ export function VariablesTable({
         <div className="flex-1 self-stretch" />
       </div>
 
-      {/* Rows */}
+      {/* Rows Grouped by Path */}
       <div className="flex-1">
-        {filtered.map((variable) => {
-          const isSelected = selectedId === variable.id;
-          // Check if value is a reference to another token (contains "/" or starts with "{")
-          const isReference = variable.value.includes("/") || variable.value.startsWith("{");
-          return (
-            <div
-              key={variable.id}
-              onClick={() => onSelect(variable.id)}
-              className={`group/row flex cursor-pointer border-b border-[#f0f0f0] transition-colors ${
-                isSelected
-                  ? "bg-[#0d99ff] text-white"
-                  : "hover:bg-[#f8f8f8] text-[#333]"
-              }`}
-              style={{ height: 36 }}
-            >
-              {/* Variable icon + name */}
-              <div
-                className="flex items-center gap-2 pl-3 pr-1 self-stretch shrink-0 justify-between"
-                style={{ width: 220 }}
+        {(() => {
+          // Grouping logic
+          const groups: Record<string, Variable[]> = {};
+          filtered.forEach(v => {
+            const pathParts = v.path.split('/');
+            pathParts.pop(); // Remove variable name
+            const groupPath = pathParts.join('/') || 'Root';
+            if (!groups[groupPath]) groups[groupPath] = [];
+            groups[groupPath].push(v);
+          });
+
+          return Object.entries(groups).map(([path, groupVars]) => (
+            <div key={path} className="flex flex-col">
+              {/* Group Path Header */}
+              <div 
+                className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5]"
+                style={{ top: 28 }} // Sticky below main headers
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <VariableIcon
-                    className={isSelected ? "text-white/70" : "text-[#999]"}
-                    type={variable.type}
-                  />
-                  <span className="text-[11px] truncate">{variable.name}</span>
-                </div>
-                <button
-                  className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${
-                    isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
-                  }`}
-                  title="Link variable"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Link size={12} />
-                </button>
+                <span className="text-[10px] font-bold text-[#bbb] uppercase tracking-wider">
+                  {path}
+                </span>
               </div>
 
-              {/* Value cell */}
-              <div
-                className={`border-l ${
-                  isSelected ? "border-white/20" : "border-[#e5e5e5]"
-                } flex items-center gap-2 pl-4 pr-1 self-stretch shrink-0 justify-between`}
-                style={{ width: 220 }}
-              >
-                <div
-                  className={`flex items-center gap-1.5 rounded ${
-                    isReference
-                      ? `px-1.5 py-0.5 ${isSelected ? "bg-white/15" : "bg-[#f5f5f5]"}`
-                      : ""
-                  }`}
-                >
-                  {variable.type === "color" && variable.colorSwatch && (
-                    <ColorVariableIcon color={variable.colorSwatch} />
-                  )}
-                  <span className="text-[11px] whitespace-nowrap">
-                    {variable.value}
-                  </span>
-                </div>
-                <button
-                  className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${
-                    isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
-                  }`}
-                  title="Target value"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Target size={12} />
-                </button>
-              </div>
+              {groupVars.map((variable) => {
+                const isSelected = selectedId === variable.id;
+                return (
+                  <div
+                    key={variable.id}
+                    ref={(el) => { itemRefs.current[variable.id] = el; }}
+                    onClick={() => onSelect(variable.id)}
+                    className={`group/row flex cursor-pointer border-b border-[#f0f0f0] transition-colors ${
+                      isSelected
+                        ? "bg-[#0d99ff] text-white"
+                        : "hover:bg-[#f8f8f8] text-[#333]"
+                    }`}
+                    style={{ height: 36 }}
+                  >
+                    {/* Variable icon + name */}
+                    <div
+                      className="flex items-center gap-2 pl-3 pr-1 self-stretch shrink-0 justify-between group/name"
+                      style={{ width: columnWidths.name }}
+                      title={variable.resolvedValue || variable.value}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <VariableIcon
+                          className={isSelected ? "text-white/70" : "text-[#999]"}
+                          type={variable.type}
+                        />
+                        <span 
+                          className="text-[11px] truncate flex-1 overflow-hidden" 
+                          style={{ direction: 'rtl', textAlign: 'left' }}
+                        >
+                          <bdo dir="ltr">{variable.name}</bdo>
+                        </span>
+                      </div>
+                      <button
+                        className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${
+                          isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                        }`}
+                        title="Link variable"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Link size={12} />
+                      </button>
+                    </div>
 
-              {/* Empty area after value — with border */}
-              <div
-                className={`border-l ${
-                  isSelected ? "border-white/20" : "border-[#e5e5e5]"
-                } self-stretch flex-1`}
-              />
+                    {/* Value cell */}
+                    <div
+                      className={`border-l ${
+                        isSelected ? "border-white/20" : "border-[#e5e5e5]"
+                      } flex items-center gap-2 pl-4 pr-1 self-stretch shrink-0 justify-between group/value`}
+                      style={{ width: columnWidths.value }}
+                      title={variable.resolvedValue || variable.value}
+                    >
+                      <div
+                        className={`flex items-center gap-1.5 rounded min-w-0 flex-1 overflow-hidden ${
+                          variable.isAlias
+                            ? `px-1.5 py-0.5 ${isSelected ? "bg-white/15" : "bg-[#f5f5f5]"}`
+                            : ""
+                        }`}
+                      >
+                        {variable.colorSwatch && (
+                          <ColorVariableIcon color={variable.colorSwatch} />
+                        )}
+                        <span 
+                          className="text-[11px] whitespace-nowrap truncate flex-1 overflow-hidden"
+                          style={{ direction: 'rtl', textAlign: 'left' }}
+                        >
+                          <bdo dir="ltr">{variable.value}</bdo>
+                        </span>
+                      </div>
+                      {variable.isAlias && (
+                        <button
+                          className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${
+                            isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                          }`}
+                          title="Go to alias"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (variable.aliasTargetId && onNavigateToTarget) {
+                              onNavigateToTarget(variable.aliasTargetId, variable.id);
+                            } else if (variable.aliasTargetId) {
+                              onSelect(variable.aliasTargetId);
+                            }
+                          }}
+                        >
+                          <Target size={12} />
+                        </button>
+                      )}
+                    </div>
 
-              {/* Sliders icon on hover — right edge */}
-              <div
-                className="self-stretch shrink-0 flex items-center justify-center"
-                style={{ width: 28 }}
-              >
-                <button
-                  className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 ${
-                    isSelected ? "text-white/60 hover:text-white" : "text-[#ccc] hover:text-[#999]"
-                  }`}
-                  title="Settings"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <SlidersHorizontal size={12} />
-                </button>
-              </div>
+                    {/* Empty area after value — with border */}
+                    <div
+                      className={`border-l ${
+                        isSelected ? "border-white/20" : "border-[#e5e5e5]"
+                      } self-stretch flex-1`}
+                    />
+
+                    {/* Sliders icon on hover — right edge */}
+                    <div
+                      className="self-stretch shrink-0 flex items-center justify-center"
+                      style={{ width: 28 }}
+                    >
+                      <button
+                        className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 ${
+                          isSelected ? "text-white/60 hover:text-white" : "text-[#ccc] hover:text-[#999]"
+                        }`}
+                        title="Settings"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <SlidersHorizontal size={12} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-        </div>
+          ));
+        })()}
       </div>
     </div>
+  </div>
 
-      {/* Bottom action bar */}
+    {/* Navigation Return Banner */}
+    {navigationReturn && (
+      <div className="mx-2 mb-2 bg-[#f0f9ff] border border-[#0d99ff]/20 rounded-md py-2 px-3 flex items-center justify-between shadow-sm animate-in slide-in-from-bottom-1 duration-200">
+        <div className="flex items-center gap-2">
+          <div className="bg-[#0d99ff]/10 p-1 rounded">
+            <Target size={12} className="text-[#0d99ff]" />
+          </div>
+          <span className="text-[11px] text-[#333]">
+            Navigated to <span className="font-semibold">{variables.find(v => v.id === selectedId)?.name}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => onNavigateToTarget?.(navigationReturn.id, '')}
+            className="text-[11px] bg-[#0d99ff] text-white px-2.5 py-1 rounded hover:bg-[#0b7fd4] transition-colors cursor-pointer font-medium"
+          >
+            Return to "{navigationReturn.name}"
+          </button>
+          <button 
+            onClick={onClearNavigationReturn}
+            className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Bottom action bar */}
       <div className="flex items-center gap-3 px-3 border-t border-[#e5e5e5] shrink-0 relative" style={{ height: 44 }}>
         <div className="relative">
           <button
