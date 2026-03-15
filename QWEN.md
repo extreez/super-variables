@@ -1,0 +1,2 @@
+## Qwen Added Memories
+- Проект: Super Variables — Figma-плагин для управления переменными с импортом/экспортом. Стек: React 18, TypeScript, Tailwind v4, Vite, esbuild. Уже реализовано: чтение переменных, UI с 3 панелями, операции с коллекциями/группами/modes, drag-and-drop, базовый импорт, навигация к алиасам. В планах: CSS экспорт/импорт, Smart Import Merge, мультиформатность, round-trip sync, alias graph, массовые операции, Git синхронизация.

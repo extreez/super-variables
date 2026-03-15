@@ -1,38 +1,104 @@
 import React, { useState } from "react";
-import { Search, Minimize2, Settings, Plus, History, SlidersHorizontal, Target, Link, Palette, Hash, Type, ToggleLeft, Code, Sparkles, Grid, GitBranch, X } from "lucide-react";
+import { Search, Minimize2, Settings, Plus, History, SlidersHorizontal, Target, Link, Palette, Hash, Type, ToggleLeft, Code, Sparkles, Grid, GitBranch, X, Copy, Trash2, ArrowLeft, ArrowRight, Download, Upload, Star, Hexagon } from "lucide-react";
 import { VariableIcon, ColorVariableIcon } from "./variable-icon";
 import type { Variable } from "./variables-data";
 import { useRef, useEffect } from "react";
+import { TokenPicker } from "./token-picker";
+import { ColorPicker } from "./color-picker";
 
 interface VariablesTableProps {
   variables: Variable[];
+  modes: Mode[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  selectedIds: string[];
+  onSelect: (id: string, multi?: { shift: boolean, ctrl: boolean }) => void;
   onGitSyncClick?: () => void;
   onMinimizeClick?: () => void;
   onNavigateToTarget?: (targetId: string, fromId: string) => void;
   navigationReturn?: { id: string, name: string } | null;
   onClearNavigationReturn?: () => void;
+  onRenameMode?: (modeId: string, newName: string) => void;
+  onCreateMode?: () => void;
+  onUpdateVariable?: (variableId: string, modeId: string, newValue: string) => void;
+  onDuplicateMode?: (modeId: string) => void;
+  onDeleteMode?: (modeId: string) => void;
+  onReorderModes?: (modeIds: string[]) => void;
+  onDuplicateVariables?: (ids: string[]) => void;
+  onDeleteVariables?: (ids: string[]) => void;
+  onNewGroupWithSelection?: (ids: string[], groupName: string) => void;
+  onEditVariable?: () => void;
+  onImportClick?: () => void;
+  onExportClick?: () => void;
 }
+
+import { Mode } from "./variables-data";
 
 export function VariablesTable({
   variables,
+  modes,
   selectedId,
+  selectedIds,
   onSelect,
   onGitSyncClick,
   onMinimizeClick,
   onNavigateToTarget,
   navigationReturn,
   onClearNavigationReturn,
+  onRenameMode,
+  onCreateMode,
+  onUpdateVariable,
+  onDuplicateMode,
+  onDeleteMode,
+  onReorderModes,
+  onDuplicateVariables,
+  onDeleteVariables,
+  onNewGroupWithSelection,
+  onEditVariable,
+  onImportClick,
+  onExportClick,
 }: VariablesTableProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [columnHeaders, setColumnHeaders] = useState({
-    value: "Value",
-  });
-  const [editingColumn, setEditingColumn] = useState<string | null>(null);
-  const [tempHeaderValue, setTempHeaderValue] = useState("");
+  const [editingModeId, setEditingModeId] = useState<string | null>(null);
+  const [editingCell, setEditingCell] = useState<{ variableId: string, modeId: string } | null>(null);
+  const [tempModeName, setTempModeName] = useState("");
+  const [tempCellValue, setTempCellValue] = useState("");
   const [showAddTokenMenu, setShowAddTokenMenu] = useState(false);
   const [showCreateStyleMenu, setShowCreateStyleMenu] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [activeTypeFilters, setActiveTypeFilters] = useState<string[]>(["color", "number", "string", "boolean", "function"]);
+
+  const toggleFilter = (type: string) => {
+    setActiveTypeFilters(prev =>
+      prev.includes(type)
+        ? prev.filter(t => t !== type)
+        : [...prev, type]
+    );
+  };
+
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    mode: Mode;
+  } | null>(null);
+
+  const [tokenContextMenu, setTokenContextMenu] = useState<{
+    x: number;
+    y: number;
+    variableIds: string[];
+  } | null>(null);
+
+  const [copiedIds, setCopiedIds] = useState<string[]>([]);
+
+  // Token/Color Picker state
+  const [showTokenPicker, setShowTokenPicker] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [pickerContext, setPickerContext] = useState<{
+    variableId: string;
+    modeId: string;
+    tokenType: "color" | "number" | "string" | "boolean";
+    currentAliasId?: string | null;
+  } | null>(null);
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -41,17 +107,28 @@ export function VariablesTable({
       itemRefs.current[selectedId]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [selectedId]);
-  
+
   // Column widths state
-  const [columnWidths, setColumnWidths] = useState({ name: 220, value: 220 });
-  const resizingColumn = useRef<{ key: 'name' | 'value'; startX: number; startWidth: number } | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ name: 220 });
+  const resizingColumn = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+
+  // Initialize mode widths
+  useEffect(() => {
+    setColumnWidths(prev => {
+      const next = { ...prev };
+      modes.forEach(m => {
+        if (!next[m.modeId]) next[m.modeId] = 220;
+      });
+      return next;
+    });
+  }, [modes]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizingColumn.current) return;
       const diff = e.clientX - resizingColumn.current.startX;
       const newWidth = Math.max(100, resizingColumn.current.startWidth + diff);
-      
+
       setColumnWidths(prev => ({
         ...prev,
         [resizingColumn.current!.key]: newWidth
@@ -71,38 +148,208 @@ export function VariablesTable({
     };
   }, []);
 
-  const startColumnResize = (key: 'name' | 'value', e: React.MouseEvent) => {
+  const startColumnResize = (key: string, e: React.MouseEvent) => {
     e.preventDefault();
     resizingColumn.current = {
       key,
       startX: e.clientX,
-      startWidth: columnWidths[key]
+      startWidth: columnWidths[key] || 220
     };
     document.body.style.cursor = 'col-resize';
   };
 
-  const handleHeaderClick = (columnKey: string) => {
-    if (columnKey === "name") return; // Name column is not editable
-    setEditingColumn(columnKey);
-    setTempHeaderValue(columnHeaders[columnKey as keyof typeof columnHeaders] || "");
-  };
+  const autoFitColumn = (key: string) => {
+    // Calculate optimal width based on content
+    const padding = 24; // px padding for content
+    const minNameWidth = 120;
+    const minModeWidth = 100;
 
-  const handleHeaderBlur = () => {
-    if (editingColumn && tempHeaderValue.trim()) {
-      setColumnHeaders((prev) => ({
+    if (key === 'name') {
+      // Find longest variable name
+      const maxNameWidth = variables.reduce((max, v) => {
+        const textWidth = v.name.length * 7; // Approximate character width
+        return Math.max(max, textWidth);
+      }, 0);
+      setColumnWidths(prev => ({
         ...prev,
-        [editingColumn]: tempHeaderValue.trim(),
+        [key]: Math.max(minNameWidth, Math.min(maxNameWidth + padding, 400))
+      }));
+    } else {
+      // For mode columns, find longest value
+      const mode = modes.find(m => m.modeId === key);
+      if (!mode) return;
+
+      const maxValueWidth = variables.reduce((max, v) => {
+        const data = v.valuesByMode[key];
+        const textWidth = (data?.value?.length || 0) * 7;
+        return Math.max(max, textWidth);
+      }, 0);
+
+      // Also consider mode name width
+      const modeNameWidth = mode.name.length * 7 + padding;
+
+      setColumnWidths(prev => ({
+        ...prev,
+        [key]: Math.max(minModeWidth, Math.min(Math.max(maxValueWidth + padding, modeNameWidth), 400))
       }));
     }
-    setEditingColumn(null);
   };
 
-  const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      handleHeaderBlur();
-    } else if (e.key === "Escape") {
-      setEditingColumn(null);
+  const handleColumnResizerDoubleClick = (key: string) => {
+    autoFitColumn(key);
+  };
+
+  const handleModeHeaderClick = (mode: Mode) => {
+    setEditingModeId(mode.modeId);
+    setTempModeName(mode.name);
+  };
+
+  const handleModeHeaderBlur = () => {
+    if (editingModeId && tempModeName.trim() && onRenameMode) {
+      onRenameMode(editingModeId, tempModeName.trim());
     }
+    setEditingModeId(null);
+  };
+
+  const handleModeHeaderKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleModeHeaderBlur();
+    } else if (e.key === "Escape") {
+      setEditingModeId(null);
+    }
+  };
+
+  const handleCellClick = (variable: Variable, modeId: string) => {
+    const data = variable.valuesByMode[modeId];
+    if (!data) return;
+
+    // If it's an alias, open token picker
+    if (data.isAlias || data.aliasTargetId) {
+      setPickerContext({
+        variableId: variable.id,
+        modeId,
+        tokenType: variable.type,
+        currentAliasId: data.aliasTargetId || null,
+      });
+      if (variable.type === "color") {
+        setShowColorPicker(true);
+      } else {
+        setShowTokenPicker(true);
+      }
+    } else {
+      // Otherwise edit cell
+      setEditingCell({ variableId: variable.id, modeId });
+      setTempCellValue(data.value);
+    }
+  };
+
+  const handleOpenTokenPicker = (variable: Variable, modeId: string) => {
+    setPickerContext({
+      variableId: variable.id,
+      modeId,
+      tokenType: variable.type,
+      currentAliasId: null,
+    });
+    if (variable.type === "color") {
+      setShowColorPicker(true);
+    } else {
+      setShowTokenPicker(true);
+    }
+  };
+
+  const handleTokenSelect = (tokenId: string, tokenName: string) => {
+    if (!pickerContext) return;
+    // Send message to Figma to set alias
+    parent.postMessage({
+      pluginMessage: {
+        type: 'set-variable-alias',
+        variableId: pickerContext.variableId,
+        modeId: pickerContext.modeId,
+        targetTokenId: tokenId,
+        targetTokenName: tokenName,
+      }
+    }, '*');
+  };
+
+  const handleUnlinkToken = () => {
+    if (!pickerContext) return;
+    // Send message to Figma to remove alias
+    parent.postMessage({
+      pluginMessage: {
+        type: 'remove-variable-alias',
+        variableId: pickerContext.variableId,
+        modeId: pickerContext.modeId,
+      }
+    }, '*');
+  };
+
+  const handleColorSelect = (color: { r: number; g: number; b: number; a: number }) => {
+    if (!pickerContext || !onUpdateVariable) return;
+    onUpdateVariable(pickerContext.variableId, pickerContext.modeId, `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${color.a})`);
+  };
+
+  const handleCellBlur = () => {
+    if (editingCell && onUpdateVariable) {
+      onUpdateVariable(editingCell.variableId, editingCell.modeId, tempCellValue);
+    }
+    setEditingCell(null);
+  };
+
+  const handleCellKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleCellBlur();
+    } else if (e.key === "Escape") {
+      setEditingCell(null);
+    }
+  };
+
+  const handleModeContextMenu = (e: React.MouseEvent, mode: Mode) => {
+    e.preventDefault();
+    setTokenContextMenu(null);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      mode
+    });
+  };
+
+  const handleTokenContextMenu = (e: React.MouseEvent, variableId: string) => {
+    e.preventDefault();
+    setContextMenu(null);
+
+    let ids = [...selectedIds];
+    if (!ids.includes(variableId)) {
+      onSelect(variableId);
+      ids = [variableId];
+    }
+
+    setTokenContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      variableIds: ids
+    });
+  };
+
+  const handleMoveMode = (direction: 'left' | 'right') => {
+    if (!contextMenu || !onReorderModes) return;
+    const modeIds = modes.map(m => m.modeId);
+    const index = modeIds.indexOf(contextMenu.mode.modeId);
+    if (direction === 'left' && index > 0) {
+      [modeIds[index - 1], modeIds[index]] = [modeIds[index], modeIds[index - 1]];
+    } else if (direction === 'right' && index < modeIds.length - 1) {
+      [modeIds[index], modeIds[index + 1]] = [modeIds[index + 1], modeIds[index]];
+    }
+    onReorderModes(modeIds);
+    setContextMenu(null);
+  };
+
+  const handleSetDefaultMode = () => {
+    if (!contextMenu || !onReorderModes) return;
+    const modeIds = modes.map(m => m.modeId);
+    const index = modeIds.indexOf(contextMenu.mode.modeId);
+    const newItems = [modeIds[index], ...modeIds.filter((_, i) => i !== index)];
+    onReorderModes(newItems);
+    setContextMenu(null);
   };
 
   const handleAddToken = (type: "color" | "number" | "string" | "boolean" | "function") => {
@@ -117,11 +364,24 @@ export function VariablesTable({
     // TODO: Implement style creation logic
   };
 
-  const filtered = searchQuery
-    ? variables.filter((v) =>
-        v.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : variables;
+  const filtered = variables.filter((v) => {
+    const matchesSearch = v.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = activeTypeFilters.includes(v.type);
+    return matchesSearch && matchesFilter;
+  });
+
+  const handleSelectAllFilters = () => {
+    setActiveTypeFilters(["color", "number", "string", "boolean", "function"]);
+  };
+
+  const handleCreateGroup = () => {
+    if (!tokenContextMenu) return;
+    const name = prompt("Enter group name:", "New Group");
+    if (name && onNewGroupWithSelection) {
+      onNewGroupWithSelection(tokenContextMenu.variableIds, name);
+    }
+    setTokenContextMenu(null);
+  };
 
   return (
     <div className="flex flex-col h-full flex-1 min-w-0">
@@ -131,7 +391,7 @@ export function VariablesTable({
         style={{ height: 36 }}
       >
         {/* Search */}
-        <div className="flex items-center gap-1.5 bg-[#f5f5f5] rounded px-2 py-[5px] flex-1 max-w-[240px]">
+        <div className="flex items-center gap-1.5 bg-[#f5f5f5] rounded px-2 py-[5px] flex-1 max-w-[280px] relative">
           <Search size={12} className="text-[#999] shrink-0" />
           <input
             type="text"
@@ -140,6 +400,53 @@ export function VariablesTable({
             onChange={(e) => setSearchQuery(e.target.value)}
             className="bg-transparent text-[11px] text-[#333] placeholder-[#bbb] outline-none w-full border-none p-0 m-0"
           />
+          <button
+            onClick={() => setShowFilterMenu(!showFilterMenu)}
+            className={`p-1 rounded hover:bg-white/50 transition-colors ${activeTypeFilters.length < 5 ? "text-[#0d99ff]" : "text-[#999]"}`}
+            title="Filter by type"
+          >
+            <SlidersHorizontal size={12} />
+          </button>
+
+          {showFilterMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowFilterMenu(false)} />
+              <div className="absolute top-[calc(100%+4px)] right-0 bg-white border border-[#e5e5e5] rounded-lg shadow-xl py-1 z-50 min-w-[140px] animate-in fade-in zoom-in duration-150">
+                <div className="px-3 py-2 border-b border-[#f5f5f5]">
+                  <span className="text-[10px] font-bold text-[#999] uppercase tracking-wider">Token Classes</span>
+                </div>
+                {[
+                  { id: 'color', label: 'Colors', icon: <Palette size={12} /> },
+                  { id: 'number', label: 'Numbers', icon: <Hash size={12} /> },
+                  { id: 'string', label: 'Strings', icon: <Type size={12} /> },
+                  { id: 'boolean', label: 'Booleans', icon: <ToggleLeft size={12} /> },
+                  { id: 'function', label: 'Functions', icon: <Sparkles size={12} /> },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => toggleFilter(f.id)}
+                    className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-[#999]">{f.icon}</span>
+                      <span>{f.label}</span>
+                    </div>
+                    {activeTypeFilters.includes(f.id) && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#0d99ff]" />
+                    )}
+                  </button>
+                ))}
+                <div className="px-1 py-1 mt-1 border-t border-[#f5f5f5]">
+                  <button
+                    onClick={() => setActiveTypeFilters(["color", "number", "string", "boolean", "function"])}
+                    className="w-full text-center py-1 text-[10px] text-[#0d99ff] hover:underline"
+                  >
+                    Reset all
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Collapse / minimize icon */}
@@ -166,235 +473,412 @@ export function VariablesTable({
       </div>
 
       {/* Scrollable Container for Headers and Rows */}
-      <div 
+      <div
         ref={scrollContainerRef}
         className="flex-1 overflow-auto bg-white relative"
       >
         <div className="min-w-max min-h-full flex flex-col">
-          {/* Column headers */}
           <div
             className="group/header flex border-b border-[#e5e5e5] bg-white sticky top-0 z-10 shrink-0"
             style={{ height: 28 }}
           >
-        <div
-          className="flex items-center text-[10px] text-[#999] pl-10 pr-4 uppercase tracking-wider shrink-0 relative"
-          style={{ width: columnWidths.name }}
-        >
-          Name
-          <div 
-            onMouseDown={(e) => startColumnResize('name', e)}
-            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#0d99ff] opacity-0 hover:opacity-100 transition-opacity z-20"
-          />
-        </div>
-        <div 
-          className="border-l border-[#e5e5e5] flex items-center text-[10px] text-[#999] pl-4 pr-4 uppercase tracking-wider self-stretch shrink-0 relative" 
-          style={{ width: columnWidths.value }}
-        >
-          {editingColumn === "value" ? (
-            <input
-              type="text"
-              value={tempHeaderValue}
-              onChange={(e) => setTempHeaderValue(e.target.value)}
-              onBlur={handleHeaderBlur}
-              onKeyDown={handleHeaderKeyDown}
-              className="bg-transparent text-[10px] text-[#999] uppercase tracking-wider outline-none w-full border-none p-0 m-0"
-              autoFocus
-            />
-          ) : (
+            {/* Variable Name Column Header */}
             <div
-              className="cursor-pointer hover:bg-[#f5f5f5] rounded px-1 py-0.5 -mx-1 -my-0.5"
-              onClick={() => handleHeaderClick("value")}
+              className="flex items-center text-[10px] text-[#999] pl-10 pr-4 tracking-wider shrink-0 relative"
+              style={{ width: columnWidths.name }}
             >
-              {columnHeaders.value}
+              Name
+              <div
+                onMouseDown={(e) => startColumnResize('name', e)}
+                onDoubleClick={() => handleColumnResizerDoubleClick('name')}
+                className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#0d99ff] opacity-0 hover:opacity-100 transition-opacity z-20"
+              />
             </div>
-          )}
-          <div 
-            onMouseDown={(e) => startColumnResize('value', e)}
-            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#0d99ff] opacity-0 hover:opacity-100 transition-opacity z-20"
-          />
-        </div>
-        <div className="border-l border-[#e5e5e5] self-stretch flex items-center pl-1 shrink-0">
-          <button className="opacity-0 group-hover/header:opacity-100 transition-opacity text-[#999] hover:text-[#333] cursor-pointer p-0.5" title="Add mode">
-            <Plus size={12} />
-          </button>
-        </div>
-        <div className="flex-1 self-stretch" />
-      </div>
 
-      {/* Rows Grouped by Path */}
-      <div className="flex-1">
-        {(() => {
-          // Grouping logic
-          const groups: Record<string, Variable[]> = {};
-          filtered.forEach(v => {
-            const pathParts = v.path.split('/');
-            pathParts.pop(); // Remove variable name
-            const groupPath = pathParts.join('/') || 'Root';
-            if (!groups[groupPath]) groups[groupPath] = [];
-            groups[groupPath].push(v);
-          });
-
-          return Object.entries(groups).map(([path, groupVars]) => (
-            <div key={path} className="flex flex-col">
-              {/* Group Path Header */}
-              <div 
-                className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5]"
-                style={{ top: 28 }} // Sticky below main headers
+            {/* Dynamic Mode Headers */}
+            {modes.map(mode => (
+              <div
+                key={mode.modeId}
+                className="border-l border-[#e5e5e5] flex items-center text-[10px] text-[#999] tracking-wider self-stretch shrink-0 relative"
+                style={{ width: columnWidths[mode.modeId] || 220 }}
               >
-                <span className="text-[10px] font-bold text-[#bbb] uppercase tracking-wider">
-                  {path}
-                </span>
-              </div>
-
-              {groupVars.map((variable) => {
-                const isSelected = selectedId === variable.id;
-                return (
+                {editingModeId === mode.modeId ? (
+                  <input
+                    type="text"
+                    value={tempModeName}
+                    onChange={(e) => setTempModeName(e.target.value)}
+                    onBlur={handleModeHeaderBlur}
+                    onKeyDown={handleModeHeaderKeyDown}
+                    className="bg-transparent text-[10px] text-[#333] font-bold tracking-wider outline-none w-full border-none px-4 m-0 h-full"
+                    autoFocus
+                  />
+                ) : (
                   <div
-                    key={variable.id}
-                    ref={(el) => { itemRefs.current[variable.id] = el; }}
-                    onClick={() => onSelect(variable.id)}
-                    className={`group/row flex cursor-pointer border-b border-[#f0f0f0] transition-colors ${
-                      isSelected
-                        ? "bg-[#0d99ff] text-white"
-                        : "hover:bg-[#f8f8f8] text-[#333]"
-                    }`}
-                    style={{ height: 36 }}
+                    className="cursor-pointer hover:bg-[#f5f5f5] px-4 w-full h-full flex items-center"
+                    onClick={() => handleModeHeaderClick(mode)}
+                    onContextMenu={(e) => handleModeContextMenu(e, mode)}
                   >
-                    {/* Variable icon + name */}
-                    <div
-                      className="flex items-center gap-2 pl-3 pr-1 self-stretch shrink-0 justify-between group/name"
-                      style={{ width: columnWidths.name }}
-                      title={variable.resolvedValue || variable.value}
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <VariableIcon
-                          className={isSelected ? "text-white/70" : "text-[#999]"}
-                          type={variable.type}
-                        />
-                        <span 
-                          className="text-[11px] truncate flex-1 overflow-hidden" 
-                          style={{ direction: 'rtl', textAlign: 'left' }}
-                        >
-                          <bdo dir="ltr">{variable.name}</bdo>
-                        </span>
-                      </div>
-                      <button
-                        className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${
-                          isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
-                        }`}
-                        title="Link variable"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Link size={12} />
-                      </button>
-                    </div>
-
-                    {/* Value cell */}
-                    <div
-                      className={`border-l ${
-                        isSelected ? "border-white/20" : "border-[#e5e5e5]"
-                      } flex items-center gap-2 pl-4 pr-1 self-stretch shrink-0 justify-between group/value`}
-                      style={{ width: columnWidths.value }}
-                      title={variable.resolvedValue || variable.value}
-                    >
-                      <div
-                        className={`flex items-center gap-1.5 rounded min-w-0 flex-1 overflow-hidden ${
-                          variable.isAlias
-                            ? `px-1.5 py-0.5 ${isSelected ? "bg-white/15" : "bg-[#f5f5f5]"}`
-                            : ""
-                        }`}
-                      >
-                        {variable.colorSwatch && (
-                          <ColorVariableIcon color={variable.colorSwatch} />
-                        )}
-                        <span 
-                          className="text-[11px] whitespace-nowrap truncate flex-1 overflow-hidden"
-                          style={{ direction: 'rtl', textAlign: 'left' }}
-                        >
-                          <bdo dir="ltr">{variable.value}</bdo>
-                        </span>
-                      </div>
-                      {variable.isAlias && (
-                        <button
-                          className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${
-                            isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
-                          }`}
-                          title="Go to alias"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (variable.aliasTargetId && onNavigateToTarget) {
-                              onNavigateToTarget(variable.aliasTargetId, variable.id);
-                            } else if (variable.aliasTargetId) {
-                              onSelect(variable.aliasTargetId);
-                            }
-                          }}
-                        >
-                          <Target size={12} />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Empty area after value — with border */}
-                    <div
-                      className={`border-l ${
-                        isSelected ? "border-white/20" : "border-[#e5e5e5]"
-                      } self-stretch flex-1`}
-                    />
-
-                    {/* Sliders icon on hover — right edge */}
-                    <div
-                      className="self-stretch shrink-0 flex items-center justify-center"
-                      style={{ width: 28 }}
-                    >
-                      <button
-                        className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 ${
-                          isSelected ? "text-white/60 hover:text-white" : "text-[#ccc] hover:text-[#999]"
-                        }`}
-                        title="Settings"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <SlidersHorizontal size={12} />
-                      </button>
-                    </div>
+                    {mode.name}
                   </div>
-                );
-              })}
+                )}
+                <div
+                  onMouseDown={(e) => startColumnResize(mode.modeId, e)}
+                  onDoubleClick={() => handleColumnResizerDoubleClick(mode.modeId)}
+                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#0d99ff] opacity-0 hover:opacity-100 transition-opacity z-20"
+                />
+              </div>
+            ))}
+
+            {/* Add Mode Button in Header */}
+            <div className="border-l border-[#e5e5e5] self-stretch flex items-center px-2 shrink-0">
+              <button
+                onClick={onCreateMode}
+                className="opacity-0 group-hover/header:opacity-100 transition-opacity text-[#999] hover:text-[#0d99ff] cursor-pointer p-0.5"
+                title="Add mode"
+              >
+                <Plus size={14} />
+              </button>
             </div>
-          ));
-        })()}
-      </div>
-    </div>
-  </div>
-
-    {/* Navigation Return Banner */}
-    {navigationReturn && (
-      <div className="mx-2 mb-2 bg-[#f0f9ff] border border-[#0d99ff]/20 rounded-md py-2 px-3 flex items-center justify-between shadow-sm animate-in slide-in-from-bottom-1 duration-200">
-        <div className="flex items-center gap-2">
-          <div className="bg-[#0d99ff]/10 p-1 rounded">
-            <Target size={12} className="text-[#0d99ff]" />
+            <div className="flex-1 self-stretch" />
           </div>
-          <span className="text-[11px] text-[#333]">
-            Navigated to <span className="font-semibold">{variables.find(v => v.id === selectedId)?.name}</span>
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={() => onNavigateToTarget?.(navigationReturn.id, '')}
-            className="text-[11px] bg-[#0d99ff] text-white px-2.5 py-1 rounded hover:bg-[#0b7fd4] transition-colors cursor-pointer font-medium"
-          >
-            Return to "{navigationReturn.name}"
-          </button>
-          <button 
-            onClick={onClearNavigationReturn}
-            className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-          >
-            <X size={14} />
-          </button>
+
+          {/* Rows Grouped by Path */}
+          <div className="flex-1">
+            {(() => {
+              // Grouping logic - show ALL tokens, not just filtered
+              const groups: Record<string, Variable[]> = {};
+              variables.forEach(v => {
+                const pathParts = v.path.split('/');
+                pathParts.pop(); // Remove variable name
+                const groupPath = pathParts.join('/') || 'Root';
+                if (!groups[groupPath]) groups[groupPath] = [];
+                groups[groupPath].push(v);
+              });
+
+              return Object.entries(groups).map(([path, groupVars]) => (
+                <div key={path} className="flex flex-col">
+                  {/* Group Path Header */}
+                  <div
+                    className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5]"
+                    style={{ top: 28 }} // Sticky below main headers
+                  >
+                    <span className="text-[10px] font-bold text-[#bbb] tracking-wider">
+                      {path}
+                    </span>
+                  </div>
+
+                  {groupVars.map((variable) => {
+                    const isSelected = selectedIds.includes(variable.id);
+                    return (
+                      <div
+                        key={variable.id}
+                        ref={(el) => { itemRefs.current[variable.id] = el; }}
+                        onClick={(e) => onSelect(variable.id, { shift: e.shiftKey, ctrl: e.metaKey || e.ctrlKey })}
+                        className={`group/row flex cursor-pointer border-b border-[#f0f0f0] transition-colors ${isSelected
+                          ? "bg-[#0d99ff] text-white"
+                          : "hover:bg-[#f8f8f8] text-[#333]"
+                          }`}
+                        style={{ height: 36 }}
+                      >
+                        {/* Variable icon + name */}
+                        <div
+                          className="flex items-center gap-2 pl-3 pr-1 self-stretch shrink-0 justify-between group/name"
+                          style={{ width: columnWidths.name }}
+                          title={variable.name}
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1" onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}>
+                            <VariableIcon
+                              className={isSelected ? "text-white/70" : "text-[#999]"}
+                              type={variable.type}
+                            />
+                            <span
+                              className="text-[11px] truncate flex-1 overflow-hidden"
+                              style={{ direction: 'rtl', textAlign: 'left' }}
+                            >
+                              <bdo dir="ltr">{variable.name}</bdo>
+                            </span>
+                          </div>
+                          <div
+                            className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity"
+                            onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}
+                          >
+                            <button
+                              className={`cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                                }`}
+                              title="Link variable"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Link size={12} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Mode Value Cells */}
+                        {modes.map(mode => {
+                          const data = variable.valuesByMode[mode.modeId];
+                          const isEditing = editingCell?.variableId === variable.id && editingCell?.modeId === mode.modeId;
+
+                          return (
+                            <div
+                              key={mode.modeId}
+                              className={`border-l ${isSelected ? "border-white/20" : "border-[#e5e5e5]"
+                                } flex items-center gap-2 pl-4 pr-1 self-stretch shrink-0 justify-between group/value`}
+                              style={{ width: columnWidths[mode.modeId] || 220 }}
+                              title={data?.resolvedValue || data?.value}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (data) handleCellClick(variable, mode.modeId);
+                              }}
+                            >
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={tempCellValue}
+                                  onChange={(e) => setTempCellValue(e.target.value)}
+                                  onBlur={handleCellBlur}
+                                  onKeyDown={handleCellKeyDown}
+                                  className={`text-[11px] outline-none w-full border-none p-0 m-0 bg-transparent ${isSelected ? "text-white placeholder-white/50" : "text-[#333] placeholder-[#ccc]"
+                                    }`}
+                                  autoFocus
+                                />
+                              ) : (
+                                <>
+                                  <div
+                                    className={`inline-flex items-center gap-1.5 rounded-[6px] min-w-0 max-w-full overflow-hidden ${data?.isAlias
+                                      ? `pl-1 pr-2 py-0.5 border ${isSelected ? "border-white/40 bg-white/10 text-white" : "border-[#e5e5e5] bg-transparent text-[#333]"}`
+                                      : ""
+                                      }`}
+                                  >
+                                    {data?.colorSwatch && (
+                                      <ColorVariableIcon color={data.colorSwatch} />
+                                    )}
+                                    <span
+                                      className="text-[11px] whitespace-nowrap truncate overflow-hidden"
+                                      style={{ direction: 'rtl', textAlign: 'left' }}
+                                    >
+                                      <bdo dir="ltr">{data?.value || ""}</bdo>
+                                    </span>
+                                  </div>
+                                  {data?.isAlias ? (
+                                    <button
+                                      className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                                        }`}
+                                      title="Go to alias"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (data.aliasTargetId && onNavigateToTarget) {
+                                          onNavigateToTarget(data.aliasTargetId, variable.id);
+                                        } else if (data.aliasTargetId) {
+                                          onSelect(data.aliasTargetId);
+                                        }
+                                      }}
+                                    >
+                                      <Target size={12} />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                                        }`}
+                                      title="Link to token"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenTokenPicker(variable, mode.modeId);
+                                      }}
+                                    >
+                                      <Hexagon size={12} />
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Empty area after value — with border */}
+                        <div
+                          className={`border-l ${isSelected ? "border-white/20" : "border-[#e5e5e5]"
+                            } self-stretch flex-1`}
+                        />
+
+                        {/* Sliders icon on hover — right edge */}
+                        <div
+                          className="self-stretch shrink-0 flex items-center justify-center"
+                          style={{ width: 28 }}
+                        >
+                          <button
+                            className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 ${isSelected ? "text-white/60 hover:text-white" : "text-[#ccc] hover:text-[#999]"
+                              }`}
+                            title="Settings"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <SlidersHorizontal size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
+          </div>
         </div>
       </div>
-    )}
 
-    {/* Bottom action bar */}
+      {/* Mode Context Menu */}
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-[100]" onClick={() => setContextMenu(null)} />
+          <div
+            className="fixed z-[101] bg-white border border-[#e5e5e5] rounded-lg shadow-xl py-1 min-w-[160px] animate-in fade-in zoom-in duration-100"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <div className="px-3 py-1.5 text-[10px] font-bold text-[#999] uppercase tracking-wider border-b border-[#f5f5f5] mb-1">
+              Mode: {contextMenu.mode.name}
+            </div>
+            <button
+              onClick={() => handleMoveMode('left')}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
+            >
+              <ArrowLeft size={12} className="text-[#999]" />
+              Move Left
+            </button>
+            <button
+              onClick={() => handleMoveMode('right')}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
+            >
+              <ArrowRight size={12} className="text-[#999]" />
+              Move Right
+            </button>
+            <div className="h-[1px] bg-[#f5f5f5] my-1" />
+            <button
+              onClick={handleSetDefaultMode}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
+            >
+              <Star size={12} className="text-[#999]" />
+              Set as Default
+            </button>
+            <div className="h-[1px] bg-[#f5f5f5] my-1" />
+            <button
+              onClick={() => {
+                if (onDeleteMode) onDeleteMode(contextMenu.mode.modeId);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#fff1f2] text-[11px] text-[#e11d48] transition-colors"
+            >
+              <Trash2 size={12} />
+              Delete Mode
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Token Context Menu */}
+      {tokenContextMenu && (
+        <>
+          <div className="fixed inset-0 z-[100]" onMouseDown={() => setTokenContextMenu(null)} />
+          <div
+            className="fixed z-[101] bg-white border border-[#e5e5e5] rounded-lg shadow-xl py-1 min-w-[180px] animate-in fade-in zoom-in duration-100"
+            style={{ left: tokenContextMenu.x, top: tokenContextMenu.y }}
+          >
+            <button
+              onClick={() => {
+                setCopiedIds(tokenContextMenu.variableIds);
+                setTokenContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+            >
+              <Copy size={12} className="text-[#999]" />
+              Copy
+            </button>
+            <button
+              onClick={() => {
+                if (copiedIds.length > 0 && onDuplicateVariables) {
+                  onDuplicateVariables(copiedIds);
+                }
+                setTokenContextMenu(null);
+              }}
+              disabled={copiedIds.length === 0}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] transition-colors text-left ${copiedIds.length === 0 ? "text-[#ccc] cursor-not-allowed" : "text-[#333]"}`}
+            >
+              <Download size={12} className={copiedIds.length === 0 ? "text-[#eee]" : "text-[#999]"} />
+              Paste
+            </button>
+
+            <div className="h-[1px] bg-[#f5f5f5] my-1" />
+
+            <button
+              onClick={handleCreateGroup}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+            >
+              <Grid size={12} className="text-[#999]" />
+              New group with selection
+            </button>
+            <button
+              onClick={() => {
+                if (onEditVariable) onEditVariable();
+                setTokenContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+            >
+              <Code size={12} className="text-[#999]" />
+              Edit variable
+            </button>
+            <button
+              onClick={() => {
+                if (onDuplicateVariables) onDuplicateVariables(tokenContextMenu.variableIds);
+                setTokenContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+            >
+              <Copy size={12} className="text-[#999]" />
+              Duplicate variable
+            </button>
+
+            <div className="h-[1px] bg-[#f5f5f5] my-1" />
+
+            <button
+              onClick={() => {
+                if (onDeleteVariables) onDeleteVariables(tokenContextMenu.variableIds);
+                setTokenContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#fff1f2] text-[11px] text-[#e11d48] transition-colors text-left"
+            >
+              <Trash2 size={12} />
+              Delete variable
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Navigation Return Banner */}
+      {navigationReturn && (
+        <div className="mx-2 mb-2 bg-[#f0f9ff] border border-[#0d99ff]/20 rounded-md py-2 px-3 flex items-center justify-between shadow-sm animate-in slide-in-from-bottom-1 duration-200">
+          <div className="flex items-center gap-2">
+            <div className="bg-[#0d99ff]/10 p-1 rounded">
+              <Target size={12} className="text-[#0d99ff]" />
+            </div>
+            <span className="text-[11px] text-[#333]">
+              Navigated to <span className="font-semibold">{variables.find(v => v.id === selectedId)?.name}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigateToTarget?.(navigationReturn.id, '')}
+              className="text-[11px] bg-[#0d99ff] text-white px-2.5 py-1 rounded hover:bg-[#0b7fd4] transition-colors cursor-pointer font-medium"
+            >
+              Return to "{navigationReturn.name}"
+            </button>
+            <button
+              onClick={onClearNavigationReturn}
+              className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom action bar */}
       <div className="flex items-center gap-3 px-3 border-t border-[#e5e5e5] shrink-0 relative" style={{ height: 44 }}>
         <div className="relative">
           <button
@@ -404,7 +888,7 @@ export function VariablesTable({
             <Plus size={12} />
             Add new token
           </button>
-          
+
           {/* Add token type menu */}
           {showAddTokenMenu && (
             <>
@@ -413,7 +897,7 @@ export function VariablesTable({
                 className="fixed inset-0 z-10"
                 onClick={() => setShowAddTokenMenu(false)}
               />
-              
+
               {/* Menu popup */}
               <div
                 className="absolute bottom-full left-0 mb-1 bg-white border border-[#e5e5e5] rounded shadow-lg py-1 z-20"
@@ -458,7 +942,7 @@ export function VariablesTable({
             </>
           )}
         </div>
-        
+
         <div className="relative">
           <button
             className="flex items-center gap-1 text-[11px] text-[#666] hover:text-[#333] cursor-pointer"
@@ -467,7 +951,7 @@ export function VariablesTable({
             <Plus size={12} />
             Create style
           </button>
-          
+
           {/* Create style menu */}
           {showCreateStyleMenu && (
             <>
@@ -476,7 +960,7 @@ export function VariablesTable({
                 className="fixed inset-0 z-10"
                 onClick={() => setShowCreateStyleMenu(false)}
               />
-              
+
               {/* Menu popup */}
               <div
                 className="absolute bottom-full left-0 mb-1 bg-white border border-[#e5e5e5] rounded shadow-lg py-1 z-20"
@@ -515,6 +999,142 @@ export function VariablesTable({
           )}
         </div>
       </div>
+
+      {/* Mode Context Menu */}
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-[100]" onClick={() => setContextMenu(null)} />
+          <div
+            className="fixed z-[101] bg-white border border-[#e5e5e5] rounded shadow-lg py-1 min-w-[160px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+              onClick={() => {
+                onDuplicateMode?.(contextMenu.mode.modeId);
+                setContextMenu(null);
+              }}
+            >
+              <Copy size={12} className="text-[#999]" />
+              Duplicate mode
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+              onClick={handleSetDefaultMode}
+            >
+              <Star size={12} className="text-[#999]" />
+              Set as default
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+              onClick={() => handleMoveMode('left')}
+            >
+              <ArrowLeft size={12} className="text-[#999]" />
+              Move left
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+              onClick={() => handleMoveMode('right')}
+            >
+              <ArrowRight size={12} className="text-[#999]" />
+              Move right
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+              onClick={() => {
+                handleModeHeaderClick(contextMenu.mode);
+                setContextMenu(null);
+              }}
+            >
+              <Type size={12} className="text-[#999]" />
+              Rename mode
+            </button>
+
+            <div className="h-[1px] bg-[#e5e5e5] my-1" />
+
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+              onClick={() => {
+                onImportClick?.();
+                setContextMenu(null);
+              }}
+            >
+              <Download size={12} className="text-[#999]" />
+              Import mode
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+              onClick={() => {
+                onExportClick?.();
+                setContextMenu(null);
+              }}
+            >
+              <Upload size={12} className="text-[#999]" />
+              Export mode
+            </button>
+
+            <div className="h-[1px] bg-[#e5e5e5] my-1" />
+
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-red-500 hover:bg-red-50"
+              onClick={() => {
+                onDeleteMode?.(contextMenu.mode.modeId);
+                setContextMenu(null);
+              }}
+            >
+              <Trash2 size={12} />
+              Delete mode
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Token Picker Modal */}
+      <TokenPicker
+        isOpen={showTokenPicker}
+        onClose={() => {
+          setShowTokenPicker(false);
+          setPickerContext(null);
+        }}
+        onSelect={handleTokenSelect}
+        onUnlink={handleUnlinkToken}
+        currentTokenId={pickerContext?.currentAliasId}
+        tokenType={pickerContext?.tokenType || "number"}
+        tokens={variables.map(v => ({
+          id: v.id,
+          name: v.name,
+          path: v.path,
+          type: v.type,
+          collectionId: v.collectionId || "",
+          value: v.valuesByMode[modes[0]?.modeId || ""]?.value,
+          colorSwatch: v.valuesByMode[modes[0]?.modeId || ""]?.colorSwatch,
+        }))}
+        collections={[]}
+      />
+
+      {/* Color Picker Modal */}
+      <ColorPicker
+        isOpen={showColorPicker}
+        onClose={() => {
+          setShowColorPicker(false);
+          setPickerContext(null);
+        }}
+        onSelectColor={handleColorSelect}
+        onSelectToken={handleTokenSelect}
+        onUnlink={handleUnlinkToken}
+        currentTokenId={pickerContext?.currentAliasId}
+        currentValue={pickerContext && variables.find(v => v.id === pickerContext.variableId)?.valuesByMode[pickerContext.modeId]}
+        tokenType="color"
+        tokens={variables.filter(v => v.type === "color").map(v => ({
+          id: v.id,
+          name: v.name,
+          path: v.path,
+          type: v.type,
+          collectionId: v.collectionId || "",
+          colorSwatch: v.valuesByMode[modes[0]?.modeId || ""]?.colorSwatch,
+        }))}
+        collections={[]}
+      />
     </div>
   );
 }

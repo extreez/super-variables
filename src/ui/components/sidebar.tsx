@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, Plus, Download, Upload, RefreshCw, ChevronDown, ChevronRight, ChevronsUp, Folder, FolderOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Plus, Download, Upload, RefreshCw, ChevronDown, ChevronRight, ChevronsUp, Folder, FolderOpen, Type, Trash2, Layers, Copy, ArrowDownAz } from "lucide-react";
+import { Reorder } from "motion/react";
 import { EmojiPicker } from "./emoji-picker";
 import type { Collection, Group } from "./variables-data";
 
@@ -8,17 +9,32 @@ interface SidebarProps {
   groups: Group[];
   selectedCollection: string;
   selectedGroup: string;
+  selectedGroups?: string[];
   collapsed: boolean;
   collectionEmojis: Record<string, string | null>;
   groupEmojis: Record<string, string | null>;
   onSelectCollection: (name: string) => void;
-  onSelectGroup: (fullName: string) => void;
+  onSelectGroup: (fullName: string, multi?: { shift: boolean, ctrl: boolean }) => void;
   onToggleCollapse: () => void;
   onSetCollectionEmoji: (name: string, emoji: string | null) => void;
   onSetGroupEmoji: (name: string, emoji: string | null) => void;
   onImportClick: () => void;
   onExportClick: () => void;
   onRefreshClick?: () => void;
+  onRenameCollection?: (collectionId: string, newName: string) => void;
+  onDeleteCollection?: (collectionId: string) => void;
+  onCreateCollection?: () => void;
+  onRenameGroup?: (oldFullName: string, newName: string) => void;
+  onDuplicateGroup?: (fullName: string) => void;
+  onDeleteGroup?: (fullName: string) => void;
+  onUngroupGroup?: (fullName: string) => void;
+  onReorderCollections?: (newOrder: string[]) => void;
+  onReorderGroups?: (collectionId: string, newOrder: string[]) => void;
+  customGroupOrder?: Record<string, string[]>;
+  onSortAlpha?: () => void;
+  isSortedAlpha?: boolean;
+  onMoveGroup?: (sourceFullNames: string[], targetCollectionId: string, targetParentPath: string) => void;
+  onMergeCollections?: (sourceCollectionId: string, targetCollectionId: string) => void;
 }
 
 const SQUARE_BTN = 28;
@@ -33,18 +49,52 @@ export function Sidebar({
   groupEmojis,
   onSelectCollection,
   onSelectGroup,
+  selectedGroups = [],
   onToggleCollapse,
   onSetCollectionEmoji,
   onSetGroupEmoji,
   onImportClick,
   onExportClick,
   onRefreshClick,
+  onRenameCollection,
+  onDeleteCollection,
+  onCreateCollection,
+  onRenameGroup,
+  onDuplicateGroup,
+  onDeleteGroup,
+  onUngroupGroup,
+  onReorderCollections,
+  onReorderGroups,
+  customGroupOrder = {},
+  onSortAlpha,
+  isSortedAlpha,
+  onMoveGroup,
+  onMergeCollections,
 }: SidebarProps) {
   const [sectionsCollapsed, setSectionsCollapsed] = useState({ collections: false, groups: false });
+  const [isGroupsSortedAlpha, setIsGroupsSortedAlpha] = useState(false);
+  const [dragOverInfo, setDragOverInfo] = useState<{
+    id: string,
+    type: 'collection' | 'group',
+    position: 'top' | 'middle' | 'bottom'
+  } | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>(() => {
     // Expand first level by default
     return {};
   });
+
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    collection?: Collection;
+    group?: Group;
+  } | null>(null);
+
+  const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null);
+  const [tempCollectionName, setTempCollectionName] = useState("");
+
+  const [editingGroupFullName, setEditingGroupFullName] = useState<string | null>(null);
+  const [tempGroupName, setTempGroupName] = useState("");
 
   const toggleFolder = (fullName: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -54,6 +104,61 @@ export function Sidebar({
   const collapseAllGroups = (e: React.MouseEvent) => {
     e.stopPropagation();
     setExpandedFolders({});
+  };
+
+  const handleCollectionContextMenu = (e: React.MouseEvent, collection: Collection) => {
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      collection
+    });
+  };
+
+  const handleGroupContextMenu = (e: React.MouseEvent, group: Group) => {
+    if (group.fullName === 'All') return;
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      group
+    });
+  };
+
+  const handleStartCollectionRename = (collection: Collection) => {
+    setEditingCollectionId(collection.id || collection.name);
+    setTempCollectionName(collection.name);
+    setContextMenu(null);
+  };
+
+  const handleStartGroupRename = (group: Group) => {
+    setEditingGroupFullName(group.fullName);
+    setTempGroupName(group.name);
+    setContextMenu(null);
+  };
+
+  const handleCollectionRenameBlur = (collection: Collection) => {
+    if (editingCollectionId && tempCollectionName.trim() && onRenameCollection) {
+      onRenameCollection(collection.id || collection.name, tempCollectionName.trim());
+    }
+    setEditingCollectionId(null);
+  };
+
+  const handleGroupRenameBlur = (group: Group) => {
+    if (editingGroupFullName && tempGroupName.trim() && onRenameGroup) {
+      onRenameGroup(group.fullName, tempGroupName.trim());
+    }
+    setEditingGroupFullName(null);
+  };
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent, type: 'collection' | 'group', item: any) => {
+    if (e.key === "Enter") {
+      if (type === 'collection') handleCollectionRenameBlur(item);
+      else handleGroupRenameBlur(item);
+    } else if (e.key === "Escape") {
+      if (type === 'collection') setEditingCollectionId(null);
+      else setEditingGroupFullName(null);
+    }
   };
 
   if (collapsed) {
@@ -85,11 +190,10 @@ export function Sidebar({
                 key={col.name}
                 onClick={() => onSelectCollection(col.name)}
                 title={col.name}
-                className={`flex items-center justify-center rounded cursor-pointer transition-colors my-[1px] ${
-                  isSelected
+                className={`flex items-center justify-center rounded cursor-pointer transition-colors my-[1px] ${isSelected
                     ? "bg-[#0d99ff]/10 text-[#0d99ff]"
                     : "text-[#666] hover:bg-[#f0f0f0]"
-                }`}
+                  }`}
                 style={{ width: SQUARE_BTN, height: SQUARE_BTN }}
               >
                 {emoji ? (
@@ -115,11 +219,10 @@ export function Sidebar({
                 key={grp.fullName}
                 onClick={() => onSelectGroup(grp.fullName)}
                 title={grp.name}
-                className={`flex items-center justify-center rounded cursor-pointer transition-colors my-[1px] ${
-                  isSelected
+                className={`flex items-center justify-center rounded cursor-pointer transition-colors my-[1px] ${isSelected
                     ? "bg-[#0d99ff]/10 text-[#0d99ff]"
                     : "text-[#666] hover:bg-[#f0f0f0]"
-                }`}
+                  }`}
                 style={{ width: SQUARE_BTN, height: SQUARE_BTN }}
               >
                 {emoji ? (
@@ -175,13 +278,13 @@ export function Sidebar({
           </button>
           <span className="text-[11px] text-[#333]">Variables</span>
         </div>
-        
+
         {/* Swapped: Reload is now in the top header */}
         <div className="flex items-center gap-0.5">
           {onRefreshClick && (
-            <button 
+            <button
               onClick={(e) => { e.stopPropagation(); onRefreshClick(); }}
-              className="text-[#999] hover:text-[#333] p-1 cursor-pointer" 
+              className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
               title="Reload variables"
             >
               <RefreshCw size={14} />
@@ -197,44 +300,121 @@ export function Sidebar({
           className="flex items-center justify-between px-2 border-b border-[#e5e5e5] bg-[#fafafa]"
           style={{ height: 28 }}
         >
-          <div 
+          <div
             className="flex items-center gap-1 cursor-pointer flex-1"
-            onClick={() => setSectionsCollapsed(s => ({ ...s, collections: !s.collections }))}
+            onClick={() => setSectionsCollapsed((s: any) => ({ ...s, collections: !s.collections }))}
           >
             {sectionsCollapsed.collections ? <ChevronRight size={12} className="text-[#999]" /> : <ChevronDown size={12} className="text-[#999]" />}
             <span className="text-[10px] text-[#999] uppercase tracking-wider font-semibold">Collections</span>
           </div>
-          {/* Swapped: Add collection is now here */}
-          <button className="text-[#999] hover:text-[#333] p-1 cursor-pointer" title="Add collection">
-            <Plus size={12} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            {/* Alphabetical sort button */}
+            <button
+              className={`p-1 rounded hover:bg-[#eee] transition-colors ${isSortedAlpha ? 'text-[#0d99ff] bg-[#0d99ff]/5' : 'text-[#999]'}`}
+              onClick={(e) => { e.stopPropagation(); onSortAlpha?.(); }}
+              title="Sort alphabetically"
+            >
+              <ArrowDownAz size={12} />
+            </button>
+            <button
+              className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
+              title="Add collection"
+              onClick={(e) => { e.stopPropagation(); onCreateCollection?.(); }}
+            >
+              <Plus size={12} />
+            </button>
+          </div>
         </div>
 
-        {/* Collection items */}
         {!sectionsCollapsed.collections && (
           <div className="flex flex-col">
             {collections.map((col) => {
               const isSelected = selectedCollection === col.name;
               return (
                 <div
-                  key={col.name}
+                  key={col.id || col.name}
                   onClick={() => onSelectCollection(col.name)}
-                  className={`flex items-center gap-2 px-3 py-[5px] cursor-pointer transition-colors ${
-                    isSelected
+                  onDoubleClick={(e) => { e.stopPropagation(); handleStartCollectionRename(col); }}
+                  onContextMenu={(e) => handleCollectionContextMenu(e, col)}
+                  onDragStart={(e: React.DragEvent) => {
+                    e.dataTransfer.setData('application/json', JSON.stringify({ id: col.id || col.name, type: 'collection' }));
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragOver={(e: React.DragEvent) => {
+                    e.preventDefault();
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    let pos: 'top' | 'middle' | 'bottom' = 'middle';
+                    if (y < rect.height * 0.25) pos = 'top';
+                    else if (y > rect.height * 0.75) pos = 'bottom';
+                    setDragOverInfo({ id: col.id || col.name, type: 'collection', position: pos });
+                  }}
+                  onDragLeave={() => setDragOverInfo(null)}
+                  onDrop={(e: React.DragEvent) => {
+                    e.preventDefault();
+                    const info = dragOverInfo; // Capture current info
+                    setDragOverInfo(null);
+
+                    try {
+                      const rawData = e.dataTransfer.getData('application/json');
+                      if (!rawData) return;
+                      const data = JSON.parse(rawData);
+
+                      if (data.type === 'group') {
+                        onMoveGroup?.(data.sources, col.id || col.name, '');
+                      } else if (data.type === 'collection') {
+                        if (info?.position === 'middle') {
+                          onMergeCollections?.(data.id, col.id || col.name);
+                        } else if (info) {
+                          // Manual reorder
+                          const currentOrder = collections.map(c => c.id || c.name);
+                          let newOrder = [...currentOrder];
+                          newOrder = newOrder.filter(id => id !== data.id);
+                          const targetIdx = newOrder.indexOf(col.id || col.name);
+                          if (targetIdx !== -1) {
+                            const insertIdx = info.position === 'top' ? targetIdx : targetIdx + 1;
+                            newOrder.splice(insertIdx, 0, data.id);
+                            onReorderCollections?.(newOrder);
+                          }
+                        }
+                      }
+                    } catch (err) { }
+                  }}
+                  draggable
+                  className={`flex items-center gap-2 px-3 py-[5px] cursor-pointer transition-colors group/col relative outline-none ${isSelected
                       ? "bg-[#0d99ff]/10 text-[#0d99ff]"
                       : "text-[#333] hover:bg-[#f5f5f5]"
-                  }`}
+                    } ${dragOverInfo?.id === (col.id || col.name) && dragOverInfo.position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''
+                    }`}
                 >
+                  {dragOverInfo?.id === (col.id || col.name) && dragOverInfo.position === 'top' && (
+                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                  )}
+                  {dragOverInfo?.id === (col.id || col.name) && dragOverInfo.position === 'bottom' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                  )}
                   <EmojiPicker
                     currentEmoji={collectionEmojis[col.name] || null}
                     defaultLetter={col.name[0]}
                     onSelect={(emoji) => onSetCollectionEmoji(col.name, emoji)}
                   />
-                  <span className="text-[11px] flex-1 truncate">{col.name}</span>
+                  {editingCollectionId === (col.id || col.name) ? (
+                    <input
+                      type="text"
+                      autoFocus
+                      value={tempCollectionName}
+                      onChange={(e) => setTempCollectionName(e.target.value)}
+                      onBlur={() => handleCollectionRenameBlur(col)}
+                      onKeyDown={(e) => handleRenameKeyDown(e, 'collection', col)}
+                      className="text-[11px] bg-white border border-[#0d99ff] outline-none px-1 py-0.5 rounded flex-1 min-w-0"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span className="text-[11px] flex-1 truncate">{col.name}</span>
+                  )}
                   <span
-                    className={`text-[11px] ${
-                      isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
-                    }`}
+                    className={`text-[11px] ${isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
+                      }`}
                   >
                     {col.count}
                   </span>
@@ -249,49 +429,159 @@ export function Sidebar({
           className={`flex items-center justify-between px-2 border-b border-[#e5e5e5] bg-[#fafafa] ${sectionsCollapsed.collections ? "" : "mt-2 border-t"}`}
           style={{ height: 28 }}
         >
-          <div 
+          <div
             className="flex items-center gap-1 cursor-pointer flex-1"
-            onClick={() => setSectionsCollapsed(s => ({ ...s, groups: !s.groups }))}
+            onClick={() => setSectionsCollapsed((s: any) => ({ ...s, groups: !s.groups }))}
           >
             {sectionsCollapsed.groups ? <ChevronRight size={12} className="text-[#999]" /> : <ChevronDown size={12} className="text-[#999]" />}
             <span className="text-[10px] text-[#999] uppercase tracking-wider font-semibold">Groups</span>
           </div>
-          <button 
-            onClick={collapseAllGroups}
-            className="text-[#999] hover:text-[#333] p-1 cursor-pointer" 
-            title="Collapse all"
-          >
-            <ChevronsUp size={12} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              className={`p-1 rounded hover:bg-[#eee] transition-colors ${isGroupsSortedAlpha ? 'text-[#0d99ff] bg-[#0d99ff]/5' : 'text-[#999]'}`}
+              onClick={(e) => { e.stopPropagation(); setIsGroupsSortedAlpha(!isGroupsSortedAlpha); }}
+              title="Sort groups alphabetically"
+            >
+              <ArrowDownAz size={12} />
+            </button>
+            <button
+              onClick={collapseAllGroups}
+              className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
+              title="Collapse all"
+            >
+              <ChevronsUp size={12} />
+            </button>
+          </div>
         </div>
 
         {/* Group items (Hierarchical) */}
         {!sectionsCollapsed.groups && (
           <div className="flex flex-col">
-            {groups.map((grp) => {
-              const isSelected = selectedGroup === grp.fullName;
+            {[...groups].sort((a, b) => {
+              if (a.fullName === 'All') return -1;
+              if (b.fullName === 'All') return 1;
+
+              if (isGroupsSortedAlpha) {
+                return a.name.localeCompare(b.name);
+              }
+
+              const colId = collections.find(c => c.name === selectedCollection)?.id || selectedCollection;
+              const order = customGroupOrder[colId] || [];
+              const idxA = order.indexOf(a.fullName);
+              const idxB = order.indexOf(b.fullName);
+
+              if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+              if (idxA !== -1) return -1;
+              if (idxB !== -1) return 1;
+
+              return 0;
+            }).map((grp) => {
+              const isSelected = selectedGroups.includes(grp.fullName);
               const isExpanded = expandedFolders[grp.fullName];
-              const parentPath = grp.fullName.includes('/') ? grp.fullName.substring(0, grp.fullName.lastIndexOf('/')) : '';
-              
-              // Only show if it's top level or its parent is expanded
-              if (grp.fullName !== 'All' && parentPath && !expandedFolders[parentPath]) {
-                return null;
+              const emoji = groupEmojis[grp.fullName];
+
+              const pathParts = grp.fullName.split('/');
+              const parentPath = pathParts.slice(0, -1).join('/');
+
+              // Only hide if it's not top-level and parent is collapsed
+              if (parentPath && parentPath !== 'All' && !expandedFolders[parentPath]) {
+                if (grp.fullName !== 'All') return null;
               }
 
               return (
                 <div
                   key={grp.fullName}
-                  onClick={() => onSelectGroup(grp.fullName)}
-                  className={`flex items-center gap-1 py-[4px] pr-3 cursor-pointer transition-colors ${
-                    isSelected
+                  draggable={grp.fullName !== 'All'}
+                  onClick={(e) => {
+                    onSelectGroup(grp.fullName, { shift: e.shiftKey, ctrl: e.metaKey || e.ctrlKey });
+                  }}
+                  onDoubleClick={(e) => {
+                    if (grp.fullName !== 'All') {
+                      e.stopPropagation();
+                      handleStartGroupRename(grp);
+                    }
+                  }}
+                  onContextMenu={(e) => handleGroupContextMenu(e, grp)}
+                  onDragStart={(e: React.DragEvent) => {
+                    const sources = selectedGroups.includes(grp.fullName) ? selectedGroups : [grp.fullName];
+                    e.dataTransfer.setData('application/json', JSON.stringify({ sources, type: 'group' }));
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragOver={(e: React.DragEvent) => {
+                    e.preventDefault();
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    let pos: 'top' | 'middle' | 'bottom' = 'middle';
+
+                    if (grp.fullName === 'All') {
+                      pos = 'middle';
+                    } else {
+                      if (y < rect.height * 0.25) pos = 'top';
+                      else if (y > rect.height * 0.75) pos = 'bottom';
+                    }
+
+                    setDragOverInfo({ id: grp.fullName, type: 'group', position: pos });
+                  }}
+                  onDragLeave={() => setDragOverInfo(null)}
+                  onDrop={(e: React.DragEvent) => {
+                    e.preventDefault();
+                    const info = dragOverInfo;
+                    setDragOverInfo(null);
+
+                    try {
+                      const rawData = e.dataTransfer.getData('application/json');
+                      if (!rawData) return;
+                      const data = JSON.parse(rawData);
+
+                      if (data.type === 'group' && info) {
+                        const targetId = info.id;
+                        const pos = info.position;
+                        const colId = collections.find(c => c.name === selectedCollection)?.id || selectedCollection;
+
+                        if (pos === 'middle') {
+                          // Nesting logic
+                          let targetParentPath = targetId === 'All' ? '' : targetId;
+                          const filteredSources = data.sources.filter((s: string) => s !== targetParentPath && !targetParentPath.startsWith(s + '/'));
+                          if (filteredSources.length > 0) {
+                            onMoveGroup?.(filteredSources, colId, targetParentPath);
+                          }
+                        } else {
+                          // Reordering logic
+                          const currentOrder = customGroupOrder[colId] || groups.map(g => g.fullName);
+                          let newOrder = [...currentOrder];
+
+                          // Remove sources
+                          newOrder = newOrder.filter(id => !data.sources.includes(id));
+
+                          // Insert at target
+                          const targetIdx = newOrder.indexOf(targetId);
+                          if (targetIdx !== -1) {
+                            const insertIdx = pos === 'top' ? targetIdx : targetIdx + 1;
+                            newOrder.splice(insertIdx, 0, ...data.sources);
+                            onReorderGroups?.(colId, newOrder);
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.error("Drop failed", err);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 py-[5px] cursor-pointer transition-colors group/row select-none relative outline-none ${isSelected
                       ? "bg-[#0d99ff]/10 text-[#0d99ff]"
                       : "text-[#333] hover:bg-[#f5f5f5]"
-                  }`}
-                  style={{ paddingLeft: 8 + grp.level * 16 }}
+                    } ${dragOverInfo?.id === grp.fullName && dragOverInfo.position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''
+                    }`}
+                  style={{ paddingLeft: (grp.level * 12) + 12, paddingRight: 12 }}
                 >
+                  {dragOverInfo?.id === grp.fullName && dragOverInfo.position === 'top' && (
+                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                  )}
+                  {dragOverInfo?.id === grp.fullName && dragOverInfo.position === 'bottom' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                  )}
                   <div className="w-4 h-4 flex items-center justify-center shrink-0">
                     {grp.isFolder && (
-                      <button 
+                      <button
                         onClick={(e) => toggleFolder(grp.fullName, e)}
                         className="text-[#999] hover:text-[#333]"
                       >
@@ -307,11 +597,23 @@ export function Sidebar({
                       customIcon={grp.isFolder ? (isExpanded ? <FolderOpen size={12} className="text-[#999]" /> : <Folder size={12} className="text-[#999]" />) : undefined}
                     />
                   </div>
-                  <span className="text-[11px] flex-1 truncate">{grp.name}</span>
+                  {editingGroupFullName === grp.fullName ? (
+                    <input
+                      type="text"
+                      autoFocus
+                      value={tempGroupName}
+                      onChange={(e) => setTempGroupName(e.target.value)}
+                      onBlur={() => handleGroupRenameBlur(grp)}
+                      onKeyDown={(e) => handleRenameKeyDown(e, 'group', grp)}
+                      className="text-[11px] bg-white border border-[#0d99ff] outline-none px-1 py-0.5 rounded flex-1 min-w-0"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span className="text-[11px] flex-1 truncate">{grp.name}</span>
+                  )}
                   <span
-                    className={`text-[10px] ${
-                      isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
-                    }`}
+                    className={`text-[10px] ${isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
+                      }`}
                   >
                     {grp.count}
                   </span>
@@ -343,6 +645,93 @@ export function Sidebar({
           Export
         </button>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-[100]" onClick={() => setContextMenu(null)} />
+          <div
+            className="fixed z-[101] bg-white border border-[#e5e5e5] rounded shadow-lg py-1 min-w-[160px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            {contextMenu.collection && (
+              <>
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                  onClick={() => handleStartCollectionRename(contextMenu.collection!)}
+                >
+                  <Type size={12} className="text-[#999]" />
+                  Rename
+                </button>
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                  onClick={() => {
+                    onExportClick();
+                    setContextMenu(null);
+                  }}
+                >
+                  <Upload size={12} className="text-[#999]" />
+                  Export Modes
+                </button>
+                <div className="h-[1px] bg-[#e5e5e5] my-1" />
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-red-500 hover:bg-red-50"
+                  onClick={() => {
+                    if (onDeleteCollection) onDeleteCollection(contextMenu.collection!.id || contextMenu.collection!.name);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Trash2 size={12} />
+                  Delete
+                </button>
+              </>
+            )}
+
+            {contextMenu.group && (
+              <>
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                  onClick={() => handleStartGroupRename(contextMenu.group!)}
+                >
+                  <Type size={12} className="text-[#999]" />
+                  Rename
+                </button>
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                  onClick={() => {
+                    if (onUngroupGroup) onUngroupGroup(contextMenu.group!.fullName);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Layers size={12} className="text-[#999]" />
+                  Ungroup
+                </button>
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                  onClick={() => {
+                    if (onDuplicateGroup) onDuplicateGroup(contextMenu.group!.fullName);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Copy size={12} className="text-[#999]" />
+                  Duplicate
+                </button>
+                <div className="h-[1px] bg-[#e5e5e5] my-1" />
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-red-500 hover:bg-red-50"
+                  onClick={() => {
+                    if (onDeleteGroup) onDeleteGroup(contextMenu.group!.fullName);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Trash2 size={12} />
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

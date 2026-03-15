@@ -50,6 +50,62 @@ export interface CollectionData {
   variableCount: number;
 }
 
+// === Scopes Types ===
+
+export interface ColorScopes {
+  fill?: { frame?: boolean; shape?: boolean; text?: boolean };
+  stroke?: boolean;
+  effects?: boolean;
+}
+
+export interface NumberScopes {
+  cornerRadius?: boolean;
+  widthHeight?: boolean;
+  gap?: boolean;
+  textContent?: boolean;
+  stroke?: boolean;
+  layerOpacity?: boolean;
+  // Typography sub-group
+  fontWeight?: boolean;
+  fontSize?: boolean;
+  lineHeight?: boolean;
+  letterSpacing?: boolean;
+  paragraphSpacing?: boolean;
+  paragraphIndent?: boolean;
+  effects?: boolean;
+}
+
+export interface StringScopes {
+  textContent?: boolean;
+  fontFamily?: boolean;
+  fontWeightOrStyle?: boolean;
+}
+
+export interface BooleanScopes {
+  // Boolean scopes are empty per requirements
+}
+
+export interface TokenScopes {
+  color?: ColorScopes;
+  number?: NumberScopes;
+  string?: StringScopes;
+  boolean?: BooleanScopes;
+}
+
+// === Code Syntax Types ===
+
+export interface PlatformSyntax {
+  web?: string;
+  android?: string;
+  ios?: string;
+}
+
+export interface CodeSyntax {
+  web?: PlatformSyntax;
+  android?: PlatformSyntax;
+  ios?: PlatformSyntax;
+}
+
 // === Variable (Token) ===
 
 export interface TokenData {
@@ -59,6 +115,9 @@ export interface TokenData {
   valuesByMode: Record<string, TokenValue>; // modeId -> value
   collectionId: string;
   scopes: string[];
+  description?: string;     // Figma Variable description
+  hiddenFromPublishing?: boolean; // Figma Variable hiddenFromPublishing
+  codeSyntax?: CodeSyntax;  // Custom code syntax per platform
 }
 
 // === Group (derived from variable paths) ===

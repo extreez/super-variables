@@ -16,23 +16,29 @@ import { useEffect, useCallback, useRef } from "react";
 
 export default function App() {
   const [selectedCollection, setSelectedCollection] = useState("Colors");
-  const [selectedGroup, setSelectedGroup] = useState("Semantics");
+  const [selectedGroup, setSelectedGroup] = useState("All");
+  const [selectedGroups, setSelectedGroups] = useState<string[]>(["All"]);
   const [selectedVariableId, setSelectedVariableId] = useState<string | null>("1");
+  const [selectedVariableIds, setSelectedVariableIds] = useState<string[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [collectionEmojis, setCollectionEmojis] = useState<Record<string, string | null>>({});
   const [groupEmojis, setGroupEmojis] = useState<Record<string, string | null>>({});
-  
+
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showGitSyncModal, setShowGitSyncModal] = useState(false);
   const [isWindowMinimized, setIsWindowMinimized] = useState(false);
   const [navigationReturn, setNavigationReturn] = useState<{ id: string, name: string } | null>(null);
-  
+
   // Real data state
   const [realCollections, setRealCollections] = useState<CollectionData[]>([]);
   const [realTokens, setRealTokens] = useState<TokenData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [customCollectionOrder, setCustomCollectionOrder] = useState<string[]>([]);
+  const [customGroupOrder, setCustomGroupOrder] = useState<Record<string, string[]>>({});
+  const [isSortedAlpha, setIsSortedAlpha] = useState(false);
+  const [activeDetailTab, setActiveDetailTab] = useState<'path' | 'details' | 'scope'>('details');
 
   // Window Resize state
   const [windowSize, setWindowSize] = useState({ width: 900, height: 620 });
@@ -73,7 +79,7 @@ export default function App() {
   useEffect(() => {
     // Initial request for data
     refreshData();
-    
+
     // Poll every 5 seconds as requested
     const interval = setInterval(refreshData, 5000);
 
@@ -86,13 +92,16 @@ export default function App() {
         setRealCollections(data.collections);
         setRealTokens(data.tokens);
         setIsLoading(false);
-        
+
         // Pick first collection and group by default if available
         if (data.collections.length > 0) {
           setRealCollections(data.collections);
           setSelectedCollection(prev => prev || data.collections[0].name);
           setSelectedGroup(prev => prev || "All");
         }
+      } else if (msg.type === 'collection-created') {
+        setSelectedCollection(msg.name);
+        setSelectedGroup("All");
       }
     };
 
@@ -114,18 +123,37 @@ export default function App() {
   };
 
   // Map real data to UI format
-  const displayCollections = realCollections.length > 0 
-    ? realCollections.map(c => ({ name: c.name, count: c.variableCount }))
-    : mockCollections;
+  const displayCollections = (() => {
+    let cols = realCollections.length > 0
+      ? realCollections.map(c => ({ id: c.id, name: c.name, count: c.variableCount }))
+      : mockCollections;
+
+    if (isSortedAlpha) {
+      return [...cols].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    if (customCollectionOrder.length > 0) {
+      return [...cols].sort((a, b) => {
+        const indexA = customCollectionOrder.indexOf(a.id || a.name);
+        const indexB = customCollectionOrder.indexOf(b.id || b.name);
+        if (indexA === -1 && indexB === -1) return 0;
+        if (indexA === -1) return 1;
+        if (indexB === -1) return -1;
+        return indexA - indexB;
+      });
+    }
+
+    return cols;
+  })();
 
   const currentCollectionId = realCollections.find(c => c.name === selectedCollection)?.id;
-  
+
   // Derived groups for the current collection
   const availableTokens = realTokens.filter(t => t.collectionId === currentCollectionId);
-  
+
   const derivedGroups = (() => {
     const groupMap = new Map<string, { name: string, fullName: string, count: number, level: number, isFolder: boolean }>();
-    
+
     // Always add "All" first
     groupMap.set('All', { name: 'All', fullName: 'All', count: availableTokens.length, level: 0, isFolder: false });
 
@@ -137,7 +165,7 @@ export default function App() {
           const part = parts[i];
           const parentPath = currentPath;
           currentPath = currentPath ? `${currentPath}/${part}` : part;
-          
+
           if (!groupMap.has(currentPath)) {
             groupMap.set(currentPath, {
               name: part,
@@ -177,81 +205,280 @@ export default function App() {
   });
 
   // Convert TokenData to the Variable format expected by components
-  const displayVariables = realTokens.length > 0 
+  const displayVariables = realTokens.length > 0
     ? filteredTokens.map(t => {
-        const firstModeId = realCollections.find(c => c.id === t.collectionId)?.modes[0]?.modeId || '';
-        const valueObj = t.valuesByMode[firstModeId];
-        let valueStr = '';
-        let resolvedValue: string | undefined = undefined;
-        let colorSwatch: string | undefined = undefined;
-        let isAlias = false;
+      const valuesByMode: any = {};
 
-        if (valueObj) {
-          if (valueObj.type === 'alias') {
-            isAlias = true;
-            valueStr = `{${valueObj.name}}`;
-            // Try to find the resolved value from the alias target if it exists in our token list
-            const targetToken = realTokens.find(rt => rt.id === valueObj.id);
-            if (targetToken) {
-              const targetValue = targetToken.valuesByMode[firstModeId];
-              if (targetValue && targetValue.type === 'color') {
-                const r = Math.round(targetValue.r * 255);
-                const g = Math.round(targetValue.g * 255);
-                const b = Math.round(targetValue.b * 255);
-                resolvedValue = `rgb(${r}, ${g}, ${b})`;
-                colorSwatch = resolvedValue;
-              } else if (targetValue && targetValue.type !== 'alias') {
-                resolvedValue = String(targetValue.value);
+      // Populate all modes for this token
+      const collection = realCollections.find(c => c.id === t.collectionId);
+      if (collection) {
+        collection.modes.forEach(mode => {
+          const valueObj = t.valuesByMode[mode.modeId];
+          let valueStr = '';
+          let resolvedValue: string | undefined = undefined;
+          let colorSwatch: string | undefined = undefined;
+          let isAlias = false;
+
+          if (valueObj) {
+            if (valueObj.type === 'alias') {
+              isAlias = true;
+              valueStr = valueObj.name;
+
+              // Resolve the alias to its final value/color and trace the path
+              const aliasChain: string[] = [valueObj.name];
+              let currentAliasId = valueObj.id;
+              let resolutionDepth = 0;
+              const maxDepth = 10;
+
+              while (resolutionDepth < maxDepth) {
+                const targetToken = realTokens.find(rt => rt.id === currentAliasId);
+                if (!targetToken) break;
+
+                // Try to find the value in the target token for the current mode
+                // If targetToken is in a different collection, mode.modeId won't work directly
+                let targetValue = targetToken.valuesByMode[mode.modeId];
+
+                if (!targetValue) {
+                  const targetCollection = realCollections.find(c => c.id === targetToken.collectionId);
+                  if (targetCollection) {
+                    const matchingMode = targetCollection.modes.find(m => m.name === mode.name);
+                    if (matchingMode) {
+                      targetValue = targetToken.valuesByMode[matchingMode.modeId];
+                    } else if (targetCollection.modes.length > 0) {
+                      targetValue = targetToken.valuesByMode[targetCollection.modes[0].modeId];
+                    }
+                  }
+                }
+
+                if (!targetValue) break;
+
+                if (targetValue.type === 'color') {
+                  const r = Math.round(targetValue.r * 255);
+                  const g = Math.round(targetValue.g * 255);
+                  const b = Math.round(targetValue.b * 255);
+                  resolvedValue = `rgb(${r}, ${g}, ${b})`;
+                  colorSwatch = resolvedValue;
+                  aliasChain.push(resolvedValue);
+                  break;
+                } else if (targetValue.type === 'alias') {
+                  currentAliasId = targetValue.id;
+                  aliasChain.push(targetValue.name);
+                  resolutionDepth++;
+                } else {
+                  resolvedValue = String(targetValue.value);
+                  aliasChain.push(resolvedValue);
+                  break;
+                }
               }
+              valuesByMode[mode.modeId] = {
+                value: valueStr,
+                resolvedValue,
+                colorSwatch,
+                isAlias,
+                aliasChain,
+                aliasTargetId: valueObj.id,
+              };
+            } else if (valueObj.type === 'color') {
+              const r = Math.round(valueObj.r * 255);
+              const g = Math.round(valueObj.g * 255);
+              const b = Math.round(valueObj.b * 255);
+              valueStr = `rgb(${r}, ${g}, ${b})`;
+              valuesByMode[mode.modeId] = {
+                value: valueStr,
+                resolvedValue: valueStr,
+                colorSwatch: valueStr,
+                isAlias: false,
+              };
+            } else {
+              valueStr = String(valueObj.value);
+              valuesByMode[mode.modeId] = {
+                value: valueStr,
+                resolvedValue: valueStr,
+                isAlias: false,
+              };
             }
-          } else if (valueObj.type === 'color') {
-            const r = Math.round(valueObj.r * 255);
-            const g = Math.round(valueObj.g * 255);
-            const b = Math.round(valueObj.b * 255);
-            valueStr = `rgb(${r}, ${g}, ${b})`;
-            resolvedValue = valueStr;
-            colorSwatch = valueStr;
           } else {
-            valueStr = String(valueObj.value);
-            resolvedValue = valueStr;
+            valuesByMode[mode.modeId] = null;
           }
-        }
+        });
+      }
 
-        return {
-          id: t.id,
-          name: t.name.split('/').pop() || t.name,
-          path: t.name,
-          value: valueStr,
-          resolvedValue,
-          colorSwatch,
-          type: t.resolvedType.toLowerCase() as any,
-          isAlias,
-          aliasTargetId: valueObj?.type === 'alias' ? valueObj.id : undefined,
-        };
-      })
-    : (mockVariables as any[]).map(v => ({ 
-        ...v, 
-        path: v.path || v.value, // Fallback for safety
-        isAlias: v.value.includes('/') || v.value.startsWith('{'),
-        resolvedValue: v.value // For mock data, we'll just show the same value as fallback
-      } as Variable));
+      return {
+        id: t.id,
+        name: t.name.split('/').pop() || t.name,
+        path: t.name,
+        type: t.resolvedType === 'FLOAT' ? 'number' : t.resolvedType.toLowerCase() as any,
+        valuesByMode,
+        description: t.description,
+        scopes: (t as any).scopes,
+        codeSyntax: (t as any).codeSyntax,
+        hiddenFromPublishing: t.hiddenFromPublishing,
+        collectionId: t.collectionId,
+      };
+    })
+    : (mockVariables as any[]).map(v => ({
+      id: v.id,
+      name: v.name,
+      path: v.path || v.name,
+      type: v.type,
+      valuesByMode: {
+        'default': {
+          value: v.value,
+          resolvedValue: v.resolvedValue,
+          colorSwatch: v.colorSwatch,
+          isAlias: !!v.aliasTargetId,
+          aliasTargetId: v.aliasTargetId
+        }
+      }
+    }));
+
+  const currentCollectionModes = realCollections.find(c => c.name === selectedCollection)?.modes || [{ modeId: 'default', name: 'Value' }];
+
 
   const selectedVariable = displayVariables.find((v) => v.id === selectedVariableId) || null;
 
-  const handleImport = (payload: { mode: 'create' | 'update', data: any }) => {
-    console.log("Importing data:", payload);
-    parent.postMessage({ 
-      pluginMessage: { 
-        type: 'import-variables', 
-        payload 
-      } 
+  const handleRenameMode = (modeId: string, newName: string) => {
+    const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+    if (collectionId) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'rename-mode',
+          collectionId,
+          modeId,
+          newName
+        }
+      }, '*');
+    }
+  };
+
+  const handleCreateMode = () => {
+    const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+    if (collectionId) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'create-mode',
+          collectionId
+        }
+      }, '*');
+    }
+  };
+
+  const handleRenameCollection = (collectionId: string, newName: string) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'rename-collection',
+        collectionId,
+        newName
+      }
     }, '*');
   };
+
+  const handleDeleteCollection = (collectionId: string) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'delete-collection',
+        collectionId
+      }
+    }, '*');
+  };
+
+  const handleRenameGroup = (oldFullName: string, newName: string) => {
+    const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+    if (collectionId) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'rename-group',
+          collectionId,
+          oldFullName,
+          newName
+        }
+      }, '*');
+    }
+  };
+
+  const handleDuplicateGroup = (fullName: string) => {
+    const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+    if (collectionId) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'duplicate-group',
+          collectionId,
+          fullName
+        }
+      }, '*');
+    }
+  };
+
+  const handleDeleteGroup = (fullName: string) => {
+    const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+    if (collectionId) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'delete-group',
+          collectionId,
+          fullName
+        }
+      }, '*');
+    }
+  };
+
+  const handleUngroupGroup = (fullName: string) => {
+    const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+    if (collectionId) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'ungroup-group',
+          collectionId,
+          fullName
+        }
+      }, '*');
+    }
+  };
+
+  const handleUpdateVariable = (variableId: string, modeId: string, value: string) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'update-variable',
+        variableId,
+        modeId,
+        value
+      }
+    }, '*');
+  };
+
+  const handleDuplicateVariables = (variableIds: string[]) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'duplicate-variables',
+        variableIds
+      }
+    }, '*');
+  };
+
+  const handleDeleteVariables = (variableIds: string[]) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'delete-variables',
+        variableIds
+      }
+    }, '*');
+  };
+
+  const handleNewGroupWithSelection = (variableIds: string[], groupName: string) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'create-group-from-selection',
+        variableIds,
+        groupName
+      }
+    }, '*');
+  };
+
 
   const handleNavigateToTarget = (targetId: string, fromId: string) => {
     // 1. Find the target token in all real tokens
     const targetToken = realTokens.find(t => t.id === targetId);
-    
+
     if (targetToken) {
       // 2. Teleport UI to correct collection/group if needed
       const coll = realCollections.find(c => c.id === targetToken.collectionId);
@@ -280,6 +507,87 @@ export default function App() {
       setNavigationReturn(null);
     }
     setSelectedVariableId(targetId);
+  };
+
+  const handleImport = (payload: { mode: 'create' | 'update', data: any }) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'import-variables',
+        payload
+      }
+    }, '*');
+  };
+
+  const handleCreateCollection = () => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'create-collection'
+      }
+    }, '*');
+  };
+
+  const handleReorderCollections = (newOrder: string[]) => {
+    setCustomCollectionOrder(newOrder);
+    setIsSortedAlpha(false);
+  };
+
+  const toggleAlphaSort = () => {
+    setIsSortedAlpha(!isSortedAlpha);
+  };
+
+  const handleSelectGroup = (fullName: string, multi?: { shift: boolean, ctrl: boolean }) => {
+    setSelectedGroup(fullName);
+
+    if (!multi || (!multi.shift && !multi.ctrl)) {
+      setSelectedGroups([fullName]);
+      return;
+    }
+
+    if (multi.ctrl) {
+      setSelectedGroups(prev => {
+        if (prev.includes(fullName)) return prev.filter(p => p !== fullName);
+        return [...prev, fullName];
+      });
+    } else if (multi.shift) {
+      // Find range in derivedGroups
+      const allNames = derivedGroups.map(g => g.fullName);
+      const lastSelected = selectedGroups[selectedGroups.length - 1] || "All";
+      const idx1 = allNames.indexOf(lastSelected);
+      const idx2 = allNames.indexOf(fullName);
+
+      if (idx1 !== -1 && idx2 !== -1) {
+        const range = allNames.slice(Math.min(idx1, idx2), Math.max(idx1, idx2) + 1);
+        setSelectedGroups(Array.from(new Set([...selectedGroups, ...range])));
+      }
+    }
+  };
+
+  const handleMoveGroup = (sourceFullNames: string[], targetCollectionId: string, targetParentPath: string) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'move-group',
+        sourceFullNames,
+        targetCollectionId,
+        targetParentPath
+      }
+    }, '*');
+  };
+
+  const handleMergeCollections = (sourceCollectionId: string, targetCollectionId: string) => {
+    parent.postMessage({
+      pluginMessage: {
+        type: 'merge-collections',
+        sourceCollectionId,
+        targetCollectionId
+      }
+    }, '*');
+  };
+
+  const handleReorderGroups = (collectionId: string, newOrder: string[]) => {
+    setCustomGroupOrder(prev => ({
+      ...prev,
+      [collectionId]: newOrder
+    }));
   };
 
   if (isWindowMinimized) {
@@ -312,8 +620,10 @@ export default function App() {
           onSelectCollection={(name) => {
             setSelectedCollection(name);
             setSelectedGroup("All");
+            setSelectedGroups(["All"]);
           }}
-          onSelectGroup={setSelectedGroup}
+          onSelectGroup={handleSelectGroup}
+          selectedGroups={selectedGroups}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
           onSetCollectionEmoji={(name, emoji) =>
             setCollectionEmojis((prev) => ({ ...prev, [name]: emoji }))
@@ -324,25 +634,91 @@ export default function App() {
           onImportClick={() => setShowImportModal(true)}
           onExportClick={() => setShowExportModal(true)}
           onRefreshClick={refreshData}
+          onRenameCollection={handleRenameCollection}
+          onDeleteCollection={handleDeleteCollection}
+          onCreateCollection={handleCreateCollection}
+          onReorderCollections={handleReorderCollections}
+          onReorderGroups={handleReorderGroups}
+          customGroupOrder={customGroupOrder}
+          onSortAlpha={toggleAlphaSort}
+          isSortedAlpha={isSortedAlpha}
+          onMoveGroup={handleMoveGroup}
+          onMergeCollections={handleMergeCollections}
+          onRenameGroup={handleRenameGroup}
+          onDuplicateGroup={handleDuplicateGroup}
+          onDeleteGroup={handleDeleteGroup}
+          onUngroupGroup={handleUngroupGroup}
         />
       </div>
 
       {/* Center — Variables table */}
       <VariablesTable
         variables={displayVariables}
+        modes={currentCollectionModes}
         selectedId={selectedVariableId}
-        onSelect={(id) => {
-          setSelectedVariableId(id);
+        selectedIds={selectedVariableIds}
+        onSelect={(id, multi) => {
+          if (!multi || (!multi.shift && !multi.ctrl)) {
+            setSelectedVariableId(id);
+            setSelectedVariableIds([id]);
+          } else if (multi.ctrl) {
+            setSelectedVariableIds(prev => {
+              if (prev.includes(id)) {
+                const newIds = prev.filter(i => i !== id);
+                setSelectedVariableId(newIds.length > 0 ? newIds[0] : null);
+                return newIds;
+              }
+              return [...prev, id];
+            });
+          } else if (multi.shift) {
+            // Range selection
+            const allIds = displayVariables.map(v => v.id);
+            const lastSelected = selectedVariableIds[selectedVariableIds.length - 1] || selectedVariableId;
+            const idx1 = lastSelected ? allIds.indexOf(lastSelected) : -1;
+            const idx2 = allIds.indexOf(id);
+
+            if (idx1 !== -1 && idx2 !== -1) {
+              const range = allIds.slice(Math.min(idx1, idx2), Math.max(idx1, idx2) + 1);
+              setSelectedVariableIds(prev => Array.from(new Set([...prev, ...range])));
+            }
+          }
         }}
         onGitSyncClick={() => setShowGitSyncModal(true)}
         onMinimizeClick={handleMinimize}
         onNavigateToTarget={handleNavigateToTarget}
         navigationReturn={navigationReturn}
         onClearNavigationReturn={() => setNavigationReturn(null)}
+        onRenameMode={handleRenameMode}
+        onCreateMode={handleCreateMode}
+        onUpdateVariable={handleUpdateVariable}
+        onDuplicateMode={(modeId) => {
+          const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+          if (collectionId) {
+            parent.postMessage({ pluginMessage: { type: 'duplicate-mode', collectionId, modeId } }, '*');
+          }
+        }}
+        onDeleteMode={(modeId) => {
+          const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+          if (collectionId) {
+            parent.postMessage({ pluginMessage: { type: 'delete-mode', collectionId, modeId } }, '*');
+          }
+        }}
+        onReorderModes={(modeIds) => {
+          const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+          if (collectionId) {
+            parent.postMessage({ pluginMessage: { type: 'reorder-modes', collectionId, modeIds } }, '*');
+          }
+        }}
+        onDuplicateVariables={handleDuplicateVariables}
+        onDeleteVariables={handleDeleteVariables}
+        onNewGroupWithSelection={handleNewGroupWithSelection}
+        onEditVariable={() => setActiveDetailTab('scope')}
+        onImportClick={() => setShowImportModal(true)}
+        onExportClick={() => setShowExportModal(true)}
       />
 
       {/* Resize Handle */}
-      <div 
+      <div
         onMouseDown={startResizing}
         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-50 flex items-end justify-end p-0.5"
       >
@@ -352,9 +728,73 @@ export default function App() {
       {/* Right — Details panel */}
       <VariableDetails
         variable={selectedVariable}
+        variables={selectedVariableIds.length > 1
+          ? displayVariables.filter(v => selectedVariableIds.includes(v.id))
+          : selectedVariable
+            ? [selectedVariable]
+            : []}
         groupName={selectedGroup}
         collapsed={detailsCollapsed}
+        modes={currentCollectionModes}
+        collections={displayCollections}
+        activeTab={activeDetailTab}
+        onActiveTabChange={setActiveDetailTab}
         onToggleCollapse={() => setDetailsCollapsed(!detailsCollapsed)}
+        onUpdateName={(variableId, newName) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'update-variable-name',
+              variableId,
+              newName
+            }
+          }, '*');
+        }}
+        onUpdateDescription={(variableId, description) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'update-variable-description',
+              variableId,
+              description
+            }
+          }, '*');
+        }}
+        onUpdateHidden={(variableId, hidden) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'update-variable-hidden',
+              variableId,
+              hidden
+            }
+          }, '*');
+        }}
+        onUpdateValue={(variableId, modeId, value) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'update-variable',
+              variableId,
+              modeId,
+              value
+            }
+          }, '*');
+        }}
+        onUpdateCodeSyntax={(variableId, codeSyntax) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'update-variable-code-syntax',
+              variableId,
+              codeSyntax
+            }
+          }, '*');
+        }}
+        onUpdateScopes={(variableIds, scopes) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'update-variable-scopes',
+              variableIds,
+              scopes
+            }
+          }, '*');
+        }}
       />
 
       {/* Modals */}

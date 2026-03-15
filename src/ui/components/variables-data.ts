@@ -1,18 +1,35 @@
+import { TokenScopes, CodeSyntax } from "../../core/types";
+
 export interface Variable {
   id: string;
   name: string;
   path: string;
-  value: string;
-  resolvedValue?: string;
-  colorSwatch?: string;
   type: "color" | "number" | "string" | "boolean" | "function";
-  isAlias: boolean;
-  aliasTargetId?: string;
+  valuesByMode: Record<string, {
+    value: string;
+    resolvedValue?: string;
+    colorSwatch?: string;
+    isAlias: boolean;
+    aliasChain?: string[];
+    aliasTargetId?: string;
+  }>;
+  description?: string;
+  scopes?: string[];
+  codeSyntax?: CodeSyntax;
+  hiddenFromPublishing?: boolean;
+  collectionId?: string;
+}
+
+export interface Mode {
+  modeId: string;
+  name: string;
 }
 
 export interface Collection {
+  id?: string;
   name: string;
   count: number;
+  modes?: Mode[];
 }
 
 export interface Group {
@@ -57,7 +74,7 @@ export const semanticVariables: any[] = [
   { id: "12", name: "border", path: "Semantics/border", value: "Primitives/neutral/200", colorSwatch: "#e5e5e5", type: "color", isAlias: true },
   { id: "13", name: "accent", path: "Semantics/accent", value: "#0d99ff", colorSwatch: "#0d99ff", type: "color", isAlias: false },
   { id: "14", name: "background", path: "Semantics/background", value: "#ffffff", colorSwatch: "#ffffff", type: "color", isAlias: false },
-  
+
   // Numbers
   { id: "15", name: "spacing-sm", path: "Spacing/sm", value: "8", type: "number", isAlias: false },
   { id: "16", name: "spacing-md", path: "Spacing/md", value: "16", type: "number", isAlias: false },
@@ -68,7 +85,7 @@ export const semanticVariables: any[] = [
   { id: "21", name: "font-size-base", path: "Typography/size-base", value: "14", type: "number", isAlias: false },
   { id: "22", name: "font-size-lg", path: "Typography/size-lg", value: "16", type: "number", isAlias: false },
   { id: "23", name: "line-height", path: "Typography/line-height", value: "1.5", type: "number", isAlias: false },
-  
+
   // Strings
   { id: "24", name: "font-family-base", path: "Typography/family-base", value: "Inter", type: "string", isAlias: false },
   { id: "25", name: "font-family-mono", path: "Typography/family-mono", value: "SF Mono, Monaco, monospace", type: "string", isAlias: false },
@@ -77,14 +94,14 @@ export const semanticVariables: any[] = [
   { id: "28", name: "transition-ease", path: "Effects/transition-ease", value: "ease-in-out", type: "string", isAlias: false },
   { id: "29", name: "shadow-sm", path: "Effects/shadow-sm", value: "0 1px 2px rgba(0,0,0,0.05)", type: "string", isAlias: false },
   { id: "30", name: "shadow-md", path: "Effects/shadow-md", value: "0 4px 6px rgba(0,0,0,0.1)", type: "string", isAlias: false },
-  
+
   // Booleans
   { id: "31", name: "enable-animations", path: "All/enable-animations", value: "true", type: "boolean", isAlias: false },
   { id: "32", name: "enable-shadows", path: "All/enable-shadows", value: "true", type: "boolean", isAlias: false },
   { id: "33", name: "debug-mode", path: "All/debug-mode", value: "false", type: "boolean", isAlias: false },
   { id: "34", name: "use-gpu-acceleration", path: "All/use-gpu-acceleration", value: "enable-animations", type: "boolean", isAlias: true },
   { id: "35", name: "dark-mode", path: "All/dark-mode", value: "false", type: "boolean", isAlias: false },
-  
+
   // Functions
   { id: "36", name: "scale-linear", path: "All/scale-linear", value: "lerp(0, 1, t)", type: "function", isAlias: false },
   { id: "37", name: "ease-out-cubic", path: "All/ease-out-cubic", value: "cubic-bezier(0.33, 1, 0.68, 1)", type: "function", isAlias: false },

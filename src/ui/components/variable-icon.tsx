@@ -47,10 +47,10 @@ export function VariableIcon({ className = "", type }: { className?: string; typ
 export function ColorVariableIcon({ color }: { color: string }) {
   return (
     <span
-      className="inline-block rounded-[3px] border border-black/10 shrink-0"
+      className="inline-block rounded-[4px] border border-black/5 shrink-0"
       style={{
-        width: 16,
-        height: 16,
+        width: 13,
+        height: 13,
         backgroundColor: color,
       }}
     />
