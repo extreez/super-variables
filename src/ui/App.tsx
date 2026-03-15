@@ -18,8 +18,9 @@ export default function App() {
   const [selectedCollection, setSelectedCollection] = useState("Colors");
   const [selectedGroup, setSelectedGroup] = useState("All");
   const [selectedGroups, setSelectedGroups] = useState<string[]>(["All"]);
-  const [selectedVariableId, setSelectedVariableId] = useState<string | null>("1");
+  const [selectedVariableId, setSelectedVariableId] = useState<string | null>(null);
   const [selectedVariableIds, setSelectedVariableIds] = useState<string[]>([]);
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [collectionEmojis, setCollectionEmojis] = useState<Record<string, string | null>>({});
@@ -205,117 +206,120 @@ export default function App() {
   });
 
   // Convert TokenData to the Variable format expected by components
-  const displayVariables = realTokens.length > 0
-    ? filteredTokens.map(t => {
-      const valuesByMode: any = {};
+  const mapTokenToVariable = (t: TokenData) => {
+    const valuesByMode: any = {};
 
-      // Populate all modes for this token
-      const collection = realCollections.find(c => c.id === t.collectionId);
-      if (collection) {
-        collection.modes.forEach(mode => {
-          const valueObj = t.valuesByMode[mode.modeId];
-          let valueStr = '';
-          let resolvedValue: string | undefined = undefined;
-          let colorSwatch: string | undefined = undefined;
-          let isAlias = false;
+    // Populate all modes for this token
+    const collection = realCollections.find(c => c.id === t.collectionId);
+    if (collection) {
+      collection.modes.forEach(mode => {
+        const valueObj = t.valuesByMode[mode.modeId];
+        let valueStr = '';
+        let resolvedValue: string | undefined = undefined;
+        let colorSwatch: string | undefined = undefined;
+        let isAlias = false;
 
-          if (valueObj) {
-            if (valueObj.type === 'alias') {
-              isAlias = true;
-              valueStr = valueObj.name;
+        if (valueObj) {
+          if (valueObj.type === 'alias') {
+            isAlias = true;
+            valueStr = valueObj.name;
 
-              // Resolve the alias to its final value/color and trace the path
-              const aliasChain: string[] = [valueObj.name];
-              let currentAliasId = valueObj.id;
-              let resolutionDepth = 0;
-              const maxDepth = 10;
+            // Resolve the alias to its final value/color and trace the path
+            const aliasChain: string[] = [valueObj.name];
+            let currentAliasId = valueObj.id;
+            let resolutionDepth = 0;
+            const maxDepth = 10;
 
-              while (resolutionDepth < maxDepth) {
-                const targetToken = realTokens.find(rt => rt.id === currentAliasId);
-                if (!targetToken) break;
+            while (resolutionDepth < maxDepth) {
+              const targetToken = realTokens.find(rt => rt.id === currentAliasId);
+              if (!targetToken) break;
 
-                // Try to find the value in the target token for the current mode
-                // If targetToken is in a different collection, mode.modeId won't work directly
-                let targetValue = targetToken.valuesByMode[mode.modeId];
+              let targetValue = targetToken.valuesByMode[mode.modeId];
 
-                if (!targetValue) {
-                  const targetCollection = realCollections.find(c => c.id === targetToken.collectionId);
-                  if (targetCollection) {
-                    const matchingMode = targetCollection.modes.find(m => m.name === mode.name);
-                    if (matchingMode) {
-                      targetValue = targetToken.valuesByMode[matchingMode.modeId];
-                    } else if (targetCollection.modes.length > 0) {
-                      targetValue = targetToken.valuesByMode[targetCollection.modes[0].modeId];
-                    }
+              if (!targetValue) {
+                const targetCollection = realCollections.find(c => c.id === targetToken.collectionId);
+                if (targetCollection) {
+                  const matchingMode = targetCollection.modes.find(m => m.name === mode.name);
+                  if (matchingMode) {
+                    targetValue = targetToken.valuesByMode[matchingMode.modeId];
+                  } else if (targetCollection.modes.length > 0) {
+                    targetValue = targetToken.valuesByMode[targetCollection.modes[0].modeId];
                   }
                 }
-
-                if (!targetValue) break;
-
-                if (targetValue.type === 'color') {
-                  const r = Math.round(targetValue.r * 255);
-                  const g = Math.round(targetValue.g * 255);
-                  const b = Math.round(targetValue.b * 255);
-                  resolvedValue = `rgb(${r}, ${g}, ${b})`;
-                  colorSwatch = resolvedValue;
-                  aliasChain.push(resolvedValue);
-                  break;
-                } else if (targetValue.type === 'alias') {
-                  currentAliasId = targetValue.id;
-                  aliasChain.push(targetValue.name);
-                  resolutionDepth++;
-                } else {
-                  resolvedValue = String(targetValue.value);
-                  aliasChain.push(resolvedValue);
-                  break;
-                }
               }
-              valuesByMode[mode.modeId] = {
-                value: valueStr,
-                resolvedValue,
-                colorSwatch,
-                isAlias,
-                aliasChain,
-                aliasTargetId: valueObj.id,
-              };
-            } else if (valueObj.type === 'color') {
-              const r = Math.round(valueObj.r * 255);
-              const g = Math.round(valueObj.g * 255);
-              const b = Math.round(valueObj.b * 255);
-              valueStr = `rgb(${r}, ${g}, ${b})`;
-              valuesByMode[mode.modeId] = {
-                value: valueStr,
-                resolvedValue: valueStr,
-                colorSwatch: valueStr,
-                isAlias: false,
-              };
-            } else {
-              valueStr = String(valueObj.value);
-              valuesByMode[mode.modeId] = {
-                value: valueStr,
-                resolvedValue: valueStr,
-                isAlias: false,
-              };
-            }
-          } else {
-            valuesByMode[mode.modeId] = null;
-          }
-        });
-      }
 
-      return {
-        id: t.id,
-        name: t.name.split('/').pop() || t.name,
-        path: t.name,
-        type: t.resolvedType === 'FLOAT' ? 'number' : t.resolvedType.toLowerCase() as any,
-        valuesByMode,
-        description: t.description,
-        scopes: (t as any).scopes,
-        codeSyntax: (t as any).codeSyntax,
-        hiddenFromPublishing: t.hiddenFromPublishing,
-        collectionId: t.collectionId,
-      };
-    })
+              if (!targetValue) break;
+
+              if (targetValue.type === 'color') {
+                const r = Math.round(targetValue.r * 255);
+                const g = Math.round(targetValue.g * 255);
+                const b = Math.round(targetValue.b * 255);
+                resolvedValue = `rgb(${r}, ${g}, ${b})`;
+                colorSwatch = resolvedValue;
+                aliasChain.push(resolvedValue);
+                break;
+              } else if (targetValue.type === 'alias') {
+                currentAliasId = targetValue.id;
+                aliasChain.push(targetValue.name);
+                resolutionDepth++;
+              } else {
+                resolvedValue = String(targetValue.value);
+                aliasChain.push(resolvedValue);
+                break;
+              }
+            }
+            valuesByMode[mode.modeId] = {
+              value: valueStr,
+              resolvedValue,
+              colorSwatch,
+              isAlias,
+              aliasChain,
+              aliasTargetId: valueObj.id,
+            };
+          } else if (valueObj.type === 'color') {
+            const r = Math.round(valueObj.r * 255);
+            const g = Math.round(valueObj.g * 255);
+            const b = Math.round(valueObj.b * 255);
+            valueStr = `rgb(${r}, ${g}, ${b})`;
+            valuesByMode[mode.modeId] = {
+              value: valueStr,
+              resolvedValue: valueStr,
+              colorSwatch: valueStr,
+              isAlias: false,
+            };
+          } else {
+            valueStr = String(valueObj.value);
+            valuesByMode[mode.modeId] = {
+              value: valueStr,
+              resolvedValue: valueStr,
+              isAlias: false,
+            };
+          }
+        } else {
+          valuesByMode[mode.modeId] = null;
+        }
+      });
+    }
+
+    return {
+      id: t.id,
+      name: t.name.split('/').pop() || t.name,
+      path: t.name,
+      type: t.resolvedType === 'FLOAT' ? 'number' : t.resolvedType.toLowerCase() as any,
+      valuesByMode,
+      description: t.description,
+      scopes: (t as any).scopes,
+      codeSyntax: (t as any).codeSyntax,
+      hiddenFromPublishing: t.hiddenFromPublishing,
+      collectionId: t.collectionId,
+      libraryName: t.libraryName || 'Local',
+    };
+  };
+
+  const mappedAllVariables = realTokens.map(mapTokenToVariable);
+
+  const displayVariables = (realTokens.length > 0
+    ? filteredTokens.map(mapTokenToVariable)
     : (mockVariables as any[]).map(v => ({
       id: v.id,
       name: v.name,
@@ -330,7 +334,7 @@ export default function App() {
           aliasTargetId: v.aliasTargetId
         }
       }
-    }));
+    }))).sort((a, b) => a.path.localeCompare(b.path));
 
   const currentCollectionModes = realCollections.find(c => c.name === selectedCollection)?.modes || [{ modeId: 'default', name: 'Value' }];
 
@@ -654,13 +658,16 @@ export default function App() {
       {/* Center — Variables table */}
       <VariablesTable
         variables={displayVariables}
+        allVariables={mappedAllVariables}
         modes={currentCollectionModes}
         selectedId={selectedVariableId}
         selectedIds={selectedVariableIds}
+        collections={displayCollections}
         onSelect={(id, multi) => {
           if (!multi || (!multi.shift && !multi.ctrl)) {
             setSelectedVariableId(id);
             setSelectedVariableIds([id]);
+            setSelectionAnchorId(id);
           } else if (multi.ctrl) {
             setSelectedVariableIds(prev => {
               if (prev.includes(id)) {
@@ -668,18 +675,21 @@ export default function App() {
                 setSelectedVariableId(newIds.length > 0 ? newIds[0] : null);
                 return newIds;
               }
+              setSelectionAnchorId(id);
               return [...prev, id];
             });
           } else if (multi.shift) {
-            // Range selection
+            // Range selection from anchor
             const allIds = displayVariables.map(v => v.id);
-            const lastSelected = selectedVariableIds[selectedVariableIds.length - 1] || selectedVariableId;
-            const idx1 = lastSelected ? allIds.indexOf(lastSelected) : -1;
+            const anchor = selectionAnchorId || selectedVariableId || id;
+            const idx1 = allIds.indexOf(anchor);
             const idx2 = allIds.indexOf(id);
 
             if (idx1 !== -1 && idx2 !== -1) {
-              const range = allIds.slice(Math.min(idx1, idx2), Math.max(idx1, idx2) + 1);
-              setSelectedVariableIds(prev => Array.from(new Set([...prev, ...range])));
+              const start = Math.min(idx1, idx2);
+              const end = Math.max(idx1, idx2);
+              const range = allIds.slice(start, end + 1);
+              setSelectedVariableIds(range);
             }
           }
         }}

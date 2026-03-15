@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Search, Link2, Unlink, ChevronDown } from "lucide-react";
-import { ColorVariableIcon } from "./variable-icon";
+import { X, Search, Unlink, ChevronDown } from "lucide-react";
 
 export interface TokenPickerProps {
-  isOpen: boolean;
+  anchorEl: HTMLElement | null;
   onClose: () => void;
   onSelect: (tokenId: string, tokenName: string) => void;
   onUnlink?: () => void;
@@ -28,7 +27,7 @@ export interface TokenPickerProps {
 }
 
 export function TokenPicker({
-  isOpen,
+  anchorEl,
   onClose,
   onSelect,
   onUnlink,
@@ -42,41 +41,94 @@ export function TokenPicker({
   const [showLibraryDropdown, setShowLibraryDropdown] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
 
-  // Focus search on open
+  // Dragging state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
   useEffect(() => {
-    if (isOpen && searchInputRef.current) {
-      setTimeout(() => searchInputRef.current?.focus(), 100);
+    if (anchorEl && searchInputRef.current) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
     }
-  }, [isOpen]);
+  }, [anchorEl]);
 
-  // Close on escape
+  useEffect(() => {
+    if (anchorEl) {
+      const rect = anchorEl.getBoundingClientRect();
+      const containerWidth = 220; // Slightly wider for better readability
+      const containerHeight = 400;
+
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      let left = rect.left;
+      let top = rect.bottom + 6;
+
+      // Ensure it doesn't go off the right edge
+      if (left + containerWidth > viewportWidth) {
+        left = Math.max(10, viewportWidth - containerWidth - 10);
+      }
+
+      // Ensure it doesn't go off the bottom edge
+      if (top + containerHeight > viewportHeight) {
+        top = Math.max(10, rect.top - containerHeight - 6);
+      }
+      
+      // Ensure it doesn't go off the top edge
+      if (top < 10) top = 10;
+      // Ensure it doesn't go off the left edge
+      if (left < 10) left = 10;
+
+      setPosition({ top, left });
+      setDragOffset({ x: 0, y: 0 }); // Reset drag offset on re-open
+    }
+  }, [anchorEl]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    const startX = e.clientX - dragOffset.x;
+    const startY = e.clientY - dragOffset.y;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      setDragOffset({
+        x: moveEvent.clientX - startX,
+        y: moveEvent.clientY - startY,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        onClose();
-      }
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [isOpen, onClose]);
+  }, [onClose]);
 
-  // Close on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node) &&
+        !anchorEl?.contains(e.target as Node)) {
         onClose();
       }
     };
-    if (isOpen) {
+    if (!isDragging) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen, onClose]);
+  }, [onClose, anchorEl, isDragging]);
 
-  if (!isOpen) return null;
-
-  // Filter tokens by type
+  // Filter by type ONLY - search across ALL collections/libraries
   const typeMap: Record<string, string[]> = {
     color: ["color"],
     number: ["float", "number"],
@@ -87,200 +139,191 @@ export function TokenPicker({
 
   let filteredTokens = tokens.filter(t => {
     const typeMatch = allowedTypes.includes(t.type.toLowerCase());
+    // Only filter by library if specific one selected
     const libraryMatch = selectedLibrary === "all" || t.collectionId === selectedLibrary;
-    const searchMatch = searchQuery === "" || 
+    const searchMatch = searchQuery === "" ||
       t.path.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.name.toLowerCase().includes(searchQuery.toLowerCase());
     return typeMatch && libraryMatch && searchMatch;
   });
 
-  // Group tokens by folder (last level before name)
-  const groupedTokens: Record<string, typeof filteredTokens> = {};
+  // Group by collection first, then by folder
+  const groupedByCollection: Record<string, Record<string, typeof filteredTokens>> = {};
+
   filteredTokens.forEach(token => {
-    const pathParts = token.path.split("/");
-    pathParts.pop(); // Remove token name
-    const groupPath = pathParts.join("/") || "Root";
-    if (!groupedTokens[groupPath]) {
-      groupedTokens[groupPath] = [];
+    const collectionName = token.collectionName || "Local";
+    if (!groupedByCollection[collectionName]) {
+      groupedByCollection[collectionName] = {};
     }
-    groupedTokens[groupPath].push(token);
+
+    const pathParts = token.path.split("/");
+    pathParts.pop();
+    const groupPath = pathParts.join("/") || "Root";
+    if (!groupedByCollection[collectionName][groupPath]) {
+      groupedByCollection[collectionName][groupPath] = [];
+    }
+    groupedByCollection[collectionName][groupPath].push(token);
   });
 
-  // Sort groups alphabetically
-  const sortedGroups = Object.entries(groupedTokens).sort((a, b) => {
-    if (a[0] === "Root") return -1;
-    if (b[0] === "Root") return 1;
+  const sortedCollections = Object.entries(groupedByCollection).sort((a, b) => {
+    if (a[0] === "Local") return -1;
+    if (b[0] === "Local") return 1;
     return a[0].localeCompare(b[0]);
   });
 
+  if (!anchorEl) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      
-      {/* Modal */}
-      <div
-        ref={containerRef}
-        className="relative bg-white rounded-lg shadow-2xl border border-[#e5e5e5] w-[400px] max-h-[500px] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150"
+    <div
+      ref={containerRef}
+      className="fixed z-[1000] bg-white rounded-lg shadow-2xl border border-[#e5e5e5] w-[220px] max-h-[400px] flex flex-col overflow-hidden"
+      style={{ 
+        top: position.top + dragOffset.y, 
+        left: position.left + dragOffset.x,
+        cursor: isDragging ? 'grabbing' : 'default'
+      }}
+    >
+      {/* Header */}
+      <div 
+        className="flex items-center justify-between px-3 py-2.5 border-b border-[#e5e5e5] bg-white cursor-grab active:cursor-grabbing select-none"
+        onMouseDown={handleMouseDown}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#e5e5e5]">
-          <span className="text-[13px] font-semibold text-[#333]">
-            {tokenType === "color" ? "Choose Color" : `Select ${tokenType}`}
-          </span>
+        <span className="text-[11px] font-bold text-[#333] pointer-events-none">
+          {tokenType === "color" ? "Select Color Token" : `Select ${tokenType.charAt(0).toUpperCase() + tokenType.slice(1)} Token`}
+        </span>
+        <button 
+          onClick={(e) => { e.stopPropagation(); onClose(); }} 
+          className="text-[#999] hover:text-[#333] p-0.5 cursor-pointer transition-colors"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Search */}
+      <div className="px-2 py-2 border-b border-[#e5e5e5]">
+        <div className="flex items-center gap-2 bg-[#f5f5f5] rounded-md px-2.5 py-1.5 focus-within:ring-1 focus-within:ring-[#0d99ff]/30 transition-shadow">
+          <Search size={12} className="text-[#999] shrink-0" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search variables..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-transparent text-[11px] text-[#333] placeholder-[#bbb] outline-none flex-1"
+          />
+        </div>
+      </div>
+
+      {/* Library Dropdown & Unlink */}
+      <div className="px-2 py-1.5 border-b border-[#e5e5e5] bg-[#fafafa] flex items-center justify-between gap-2">
+        <div className="relative">
           <button
-            onClick={onClose}
-            className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
+            onClick={() => setShowLibraryDropdown(!showLibraryDropdown)}
+            className="flex items-center gap-1.5 text-[10px] font-medium text-[#555] bg-white border border-[#e5e5e5] rounded px-2 py-1 hover:border-[#ccc] hover:bg-[#fff] transition-all"
           >
-            <X size={16} />
+            {selectedLibrary === "all" ? "All Libraries" : collections.find(c => c.id === selectedLibrary)?.name || "Library"}
+            <ChevronDown size={10} className={`text-[#999] transition-transform ${showLibraryDropdown ? 'rotate-180' : ''}`} />
           </button>
-        </div>
 
-        {/* Search */}
-        <div className="px-4 py-3 border-b border-[#e5e5e5]">
-          <div className="flex items-center gap-2 bg-[#f5f5f5] rounded px-3 py-2">
-            <Search size={14} className="text-[#999] shrink-0" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search tokens..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-transparent text-[12px] text-[#333] placeholder-[#bbb] outline-none flex-1"
-            />
-          </div>
-        </div>
-
-        {/* Library Dropdown & Unlink */}
-        <div className="px-4 py-2 border-b border-[#e5e5e5] flex items-center justify-between gap-2">
-          <div className="relative">
-            <button
-              onClick={() => setShowLibraryDropdown(!showLibraryDropdown)}
-              className="flex items-center gap-2 text-[11px] text-[#333] bg-white border border-[#e5e5e5] rounded px-3 py-1.5 hover:bg-[#f5f5f5]"
-            >
-              {selectedLibrary === "all" 
-                ? "All Libraries" 
-                : collections.find(c => c.id === selectedLibrary)?.name || "Library"}
-              <ChevronDown size={12} className={`transition-transform ${showLibraryDropdown ? 'rotate-180' : ''}`} />
-            </button>
-            
-            {showLibraryDropdown && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowLibraryDropdown(false)} />
-                <div className="absolute top-full left-0 mt-1 bg-white border border-[#e5e5e5] rounded shadow-lg py-1 z-20 min-w-[180px]">
+          {showLibraryDropdown && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowLibraryDropdown(false)} />
+              <div className="absolute top-full left-0 mt-1 bg-white border border-[#e5e5e5] rounded-md shadow-xl py-1 z-50 min-w-[160px] animate-in fade-in slide-in-from-top-1 duration-150">
+                <button
+                  onClick={() => { setSelectedLibrary("all"); setShowLibraryDropdown(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-[#f5f5f5] transition-colors ${selectedLibrary === "all" ? "text-[#0d99ff] font-semibold bg-[#0d99ff]/5" : "text-[#333]"}`}
+                >
+                  All Libraries
+                </button>
+                {collections.map(col => (
                   <button
-                    onClick={() => {
-                      setSelectedLibrary("all");
-                      setShowLibraryDropdown(false);
-                    }}
-                    className={`w-full text-left px-3 py-1.5 text-[11px] hover:bg-[#f5f5f5] ${
-                      selectedLibrary === "all" ? "text-[#0d99ff]" : "text-[#333]"
-                    }`}
+                    key={col.id}
+                    onClick={() => { setSelectedLibrary(col.id); setShowLibraryDropdown(false); }}
+                    className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-[#f5f5f5] transition-colors ${selectedLibrary === col.id ? "text-[#0d99ff] font-semibold bg-[#0d99ff]/5" : "text-[#333]"}`}
                   >
-                    All Libraries
+                    {col.name} {col.isRemote && " 📦"}
                   </button>
-                  {collections.map(col => (
-                    <button
-                      key={col.id}
-                      onClick={() => {
-                        setSelectedLibrary(col.id);
-                        setShowLibraryDropdown(false);
-                      }}
-                      className={`w-full text-left px-3 py-1.5 text-[11px] hover:bg-[#f5f5f5] ${
-                        selectedLibrary === col.id ? "text-[#0d99ff]" : "text-[#333]"
-                      }`}
-                    >
-                      {col.name} {col.isRemote && "📦"}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {onUnlink && currentTokenId && (
+          <button
+            onClick={() => { onUnlink(); onClose(); }}
+            className="flex items-center gap-1 text-[10px] font-medium text-[#dc2626] hover:bg-[#fef2f2] px-2 py-1 rounded transition-colors"
+          >
+            <Unlink size={10} />
+            Unlink
+          </button>
+        )}
+      </div>
+
+      {/* Token List */}
+      <div className="flex-1 overflow-y-auto p-1.5">
+        {sortedCollections.length === 0 ? (
+          <div className="text-center py-8 flex flex-col items-center gap-2">
+             <Search size={24} className="text-[#eee]" />
+             <span className="text-[11px] text-[#999]">No tokens found</span>
           </div>
-
-          {onUnlink && currentTokenId && (
-            <button
-              onClick={() => {
-                onUnlink();
-                onClose();
-              }}
-              className="flex items-center gap-1.5 text-[11px] text-[#dc2626] hover:bg-[#fef2f2] px-3 py-1.5 rounded"
-            >
-              <Unlink size={12} />
-              Unlink
-            </button>
-          )}
-        </div>
-
-        {/* Token List */}
-        <div className="flex-1 overflow-y-auto p-2">
-          {sortedGroups.length === 0 ? (
-            <div className="text-center py-8 text-[11px] text-[#999]">
-              No tokens found
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {sortedGroups.map(([groupPath, groupTokens]) => (
-                <div key={groupPath}>
-                  {groupPath !== "Root" && (
-                    <div className="text-[10px] font-semibold text-[#999] uppercase tracking-wider px-2 py-1">
-                      {groupPath}
-                    </div>
-                  )}
-                  <div className="flex flex-col">
-                    {groupTokens.map(token => (
-                      <button
-                        key={token.id}
-                        onClick={() => {
-                          onSelect(token.id, token.path);
-                          onClose();
-                        }}
-                        className={`flex items-center gap-3 px-3 py-2 hover:bg-[#f5f5f5] rounded transition-colors ${
-                          currentTokenId === token.id ? "bg-[#0d99ff]/10" : ""
-                        }`}
-                      >
-                        {/* Preview */}
-                        {token.type.toLowerCase() === "color" && token.colorSwatch && (
-                          <div
-                            className="w-5 h-5 rounded border border-[#e5e5e5] shrink-0"
-                            style={{ backgroundColor: token.colorSwatch }}
-                          />
-                        )}
-                        {token.type.toLowerCase() === "boolean" && (
-                          <div className={`w-5 h-5 rounded border shrink-0 ${
-                            token.value === "true" ? "bg-[#16a34a] border-[#16a34a]" : "bg-[#e5e5e5] border-[#ccc]"
-                          }`} />
-                        )}
-                        {(token.type.toLowerCase() === "number" || token.type.toLowerCase() === "float") && (
-                          <div className="w-5 h-5 rounded border border-[#e5e5e5] flex items-center justify-center shrink-0">
-                            <span className="text-[9px] text-[#666]">#</span>
-                          </div>
-                        )}
-                        {token.type.toLowerCase() === "string" && (
-                          <div className="w-5 h-5 rounded border border-[#e5e5e5] flex items-center justify-center shrink-0">
-                            <span className="text-[9px] text-[#666]">Aa</span>
-                          </div>
-                        )}
-                        
-                        {/* Name */}
-                        <span className="text-[11px] text-[#333] flex-1 truncate text-left">
-                          {token.path}
-                        </span>
-                        
-                        {/* Collection badge for remote */}
-                        {token.collectionName && (
-                          <span className="text-[9px] text-[#999] bg-[#f5f5f5] px-1.5 py-0.5 rounded">
-                            {token.collectionName}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {sortedCollections.map(([collectionName, collectionGroups]) => (
+              <div key={collectionName} className="flex flex-col gap-1">
+                {/* Collection Header */}
+                <div className="text-[11px] font-bold text-[#000] px-1.5 py-1 bg-[#f8f8f8] rounded border border-[#f0f0f0] mb-1">
+                  {collectionName}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+
+                {/* Groups within collection */}
+                {Object.entries(collectionGroups).sort((a, b) => {
+                  if (a[0] === "Root") return -1;
+                  if (b[0] === "Root") return 1;
+                  return a[0].localeCompare(b[0]);
+                }).map(([groupPath, groupTokens]) => (
+                  <div key={groupPath} className="mb-1 last:mb-0">
+                    {groupPath !== "Root" && (
+                      <div className="text-[10px] font-semibold text-[#666] px-1.5 py-1 flex items-center gap-1.5">
+                        <div className="w-1 h-3 bg-[#e5e5e5] rounded-full" />
+                        {groupPath}
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-0.5 mt-0.5">
+                      {groupTokens.map(token => (
+                        <button
+                          key={token.id}
+                          onClick={() => { onSelect(token.id, token.path); onClose(); }}
+                          className={`flex items-center gap-2 px-2 py-1.5 hover:bg-[#f5f5f5] rounded-md transition-all group/token ${currentTokenId === token.id ? "bg-[#0d99ff]/10 text-[#0d99ff]" : "text-[#333]"
+                            }`}
+                        >
+                          {/* Preview Icons */}
+                          <div className="shrink-0">
+                            {token.type.toLowerCase() === "color" && token.colorSwatch ? (
+                              <div className="w-3.5 h-3.5 rounded-sm border border-[#000]/10 shadow-sm" style={{ backgroundColor: token.colorSwatch }} />
+                            ) : token.type.toLowerCase() === "boolean" ? (
+                              <div className={`w-3.5 h-3.5 rounded-sm border shadow-sm ${token.value === "true" ? "bg-[#16a34a] border-[#16a34a]" : "bg-[#e5e5e5] border-[#ccc]"}`} />
+                            ) : (token.type.toLowerCase() === "number" || token.type.toLowerCase() === "float") ? (
+                              <div className="w-3.5 h-3.5 rounded-sm bg-[#f0f0f0] border border-[#e5e5e5] flex items-center justify-center">
+                                <span className="text-[8px] font-bold text-[#999]">#</span>
+                              </div>
+                            ) : (
+                              <div className="w-3.5 h-3.5 rounded-sm bg-[#f0f0f0] border border-[#e5e5e5] flex items-center justify-center">
+                                <span className="text-[8px] font-bold text-[#999]">Aa</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <span className="text-[10px] flex-1 truncate text-left font-medium group-hover/token:translate-x-0.5 transition-transform">{token.path}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

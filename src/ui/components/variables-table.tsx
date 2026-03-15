@@ -8,9 +8,11 @@ import { ColorPicker } from "./color-picker";
 
 interface VariablesTableProps {
   variables: Variable[];
+  allVariables: Variable[];
   modes: Mode[];
   selectedId: string | null;
   selectedIds: string[];
+  collections: { id: string, name: string, libraryName?: string }[];
   onSelect: (id: string, multi?: { shift: boolean, ctrl: boolean }) => void;
   onGitSyncClick?: () => void;
   onMinimizeClick?: () => void;
@@ -35,9 +37,11 @@ import { Mode } from "./variables-data";
 
 export function VariablesTable({
   variables,
+  allVariables,
   modes,
   selectedId,
   selectedIds,
+  collections,
   onSelect,
   onGitSyncClick,
   onMinimizeClick,
@@ -61,6 +65,8 @@ export function VariablesTable({
   const [editingModeId, setEditingModeId] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ variableId: string, modeId: string } | null>(null);
   const [tempModeName, setTempModeName] = useState("");
+  const [editingTokenNameId, setEditingTokenNameId] = useState<string | null>(null);
+  const [tempTokenName, setTempTokenName] = useState("");
   const [tempCellValue, setTempCellValue] = useState("");
   const [showAddTokenMenu, setShowAddTokenMenu] = useState(false);
   const [showCreateStyleMenu, setShowCreateStyleMenu] = useState(false);
@@ -90,8 +96,8 @@ export function VariablesTable({
   const [copiedIds, setCopiedIds] = useState<string[]>([]);
 
   // Token/Color Picker state
-  const [showTokenPicker, setShowTokenPicker] = useState(false);
-  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [tokenPickerAnchor, setTokenPickerAnchor] = useState<HTMLElement | null>(null);
+  const [colorPickerAnchor, setColorPickerAnchor] = useState<HTMLElement | null>(null);
   const [pickerContext, setPickerContext] = useState<{
     variableId: string;
     modeId: string;
@@ -219,7 +225,29 @@ export function VariablesTable({
     }
   };
 
-  const handleCellClick = (variable: Variable, modeId: string) => {
+  const handleTokenNameBlur = (variableId: string) => {
+    if (editingTokenNameId && tempTokenName.trim()) {
+      // Send message to Figma
+      parent.postMessage({
+        pluginMessage: {
+          type: 'update-variable-name',
+          variableId,
+          newName: tempTokenName.trim()
+        }
+      }, '*');
+    }
+    setEditingTokenNameId(null);
+  };
+
+  const handleTokenNameKeyDown = (e: React.KeyboardEvent, variableId: string) => {
+    if (e.key === "Enter") {
+      handleTokenNameBlur(variableId);
+    } else if (e.key === "Escape") {
+      setEditingTokenNameId(null);
+    }
+  };
+
+  const handleCellClick = (variable: Variable, modeId: string, event: React.MouseEvent) => {
     const data = variable.valuesByMode[modeId];
     if (!data) return;
 
@@ -232,9 +260,9 @@ export function VariablesTable({
         currentAliasId: data.aliasTargetId || null,
       });
       if (variable.type === "color") {
-        setShowColorPicker(true);
+        setColorPickerAnchor(event.currentTarget as HTMLElement);
       } else {
-        setShowTokenPicker(true);
+        setTokenPickerAnchor(event.currentTarget as HTMLElement);
       }
     } else {
       // Otherwise edit cell
@@ -243,7 +271,8 @@ export function VariablesTable({
     }
   };
 
-  const handleOpenTokenPicker = (variable: Variable, modeId: string) => {
+  const handleOpenTokenPicker = (variable: Variable, modeId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
     setPickerContext({
       variableId: variable.id,
       modeId,
@@ -251,9 +280,9 @@ export function VariablesTable({
       currentAliasId: null,
     });
     if (variable.type === "color") {
-      setShowColorPicker(true);
+      setColorPickerAnchor(event.currentTarget as HTMLElement);
     } else {
-      setShowTokenPicker(true);
+      setTokenPickerAnchor(event.currentTarget as HTMLElement);
     }
   };
 
@@ -543,7 +572,7 @@ export function VariablesTable({
           </div>
 
           {/* Rows Grouped by Path */}
-          <div className="flex-1">
+          <div className="flex-1 select-none">
             {(() => {
               // Grouping logic - show ALL tokens, not just filtered
               const groups: Record<string, Variable[]> = {};
@@ -555,8 +584,14 @@ export function VariablesTable({
                 groups[groupPath].push(v);
               });
 
-              return Object.entries(groups).map(([path, groupVars]) => (
-                <div key={path} className="flex flex-col">
+              return Object.entries(groups)
+                .sort((a, b) => {
+                  if (a[0] === 'Root') return -1;
+                  if (b[0] === 'Root') return 1;
+                  return a[0].localeCompare(b[0]);
+                })
+                .map(([path, groupVars]) => (
+                  <div key={path} className="flex flex-col">
                   {/* Group Path Header */}
                   <div
                     className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5]"
@@ -586,17 +621,40 @@ export function VariablesTable({
                           style={{ width: columnWidths.name }}
                           title={variable.name}
                         >
-                          <div className="flex items-center gap-2 min-w-0 flex-1" onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}>
+                          <div 
+                            className="flex items-center gap-2 min-w-0 flex-1" 
+                            onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTokenNameId(variable.id);
+                              setTempTokenName(variable.path);
+                            }}
+                          >
                             <VariableIcon
                               className={isSelected ? "text-white/70" : "text-[#999]"}
                               type={variable.type}
                             />
-                            <span
-                              className="text-[11px] truncate flex-1 overflow-hidden"
-                              style={{ direction: 'rtl', textAlign: 'left' }}
-                            >
-                              <bdo dir="ltr">{variable.name}</bdo>
-                            </span>
+                            {editingTokenNameId === variable.id ? (
+                              <input
+                                type="text"
+                                value={tempTokenName}
+                                onChange={(e) => setTempTokenName(e.target.value)}
+                                onBlur={() => handleTokenNameBlur(variable.id)}
+                                onKeyDown={(e) => handleTokenNameKeyDown(e, variable.id)}
+                                className={`text-[11px] outline-none w-full border-none p-0 m-0 bg-transparent ${
+                                  isSelected ? "text-white" : "text-[#333]"
+                                }`}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span
+                                className="text-[11px] truncate flex-1 overflow-hidden"
+                                style={{ direction: 'rtl', textAlign: 'left' }}
+                              >
+                                <bdo dir="ltr">{variable.name}</bdo>
+                              </span>
+                            )}
                           </div>
                           <div
                             className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity"
@@ -627,7 +685,7 @@ export function VariablesTable({
                               title={data?.resolvedValue || data?.value}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (data) handleCellClick(variable, mode.modeId);
+                                if (data) handleCellClick(variable, mode.modeId, e);
                               }}
                             >
                               {isEditing ? (
@@ -682,7 +740,7 @@ export function VariablesTable({
                                       title="Link to token"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        handleOpenTokenPicker(variable, mode.modeId);
+                                        handleOpenTokenPicker(variable, mode.modeId, e);
                                       }}
                                     >
                                       <Hexagon size={12} />
@@ -1089,51 +1147,52 @@ export function VariablesTable({
         </>
       )}
 
-      {/* Token Picker Modal */}
+      {/* Token Picker Popover */}
       <TokenPicker
-        isOpen={showTokenPicker}
+        anchorEl={tokenPickerAnchor}
         onClose={() => {
-          setShowTokenPicker(false);
+          setTokenPickerAnchor(null);
           setPickerContext(null);
         }}
         onSelect={handleTokenSelect}
         onUnlink={handleUnlinkToken}
         currentTokenId={pickerContext?.currentAliasId}
         tokenType={pickerContext?.tokenType || "number"}
-        tokens={variables.map(v => ({
+        tokens={allVariables.map(v => ({
           id: v.id,
           name: v.name,
           path: v.path,
           type: v.type,
-          collectionId: v.collectionId || "",
-          value: v.valuesByMode[modes[0]?.modeId || ""]?.value,
-          colorSwatch: v.valuesByMode[modes[0]?.modeId || ""]?.colorSwatch,
+          collectionId: v.libraryName || "Local",
+          collectionName: collections.find(c => c.id === v.collectionId)?.name || v.collectionId,
+          value: v.valuesByMode[Object.keys(v.valuesByMode)[0]]?.value,
+          colorSwatch: v.valuesByMode[Object.keys(v.valuesByMode)[0]]?.colorSwatch,
         }))}
-        collections={[]}
+        collections={Array.from(new Set(allVariables.map(v => v.libraryName || "Local"))).map(lib => ({ id: lib, name: lib }))}
       />
 
-      {/* Color Picker Modal */}
+      {/* Color Picker Popover */}
       <ColorPicker
-        isOpen={showColorPicker}
+        anchorEl={colorPickerAnchor}
         onClose={() => {
-          setShowColorPicker(false);
+          setColorPickerAnchor(null);
           setPickerContext(null);
         }}
         onSelectColor={handleColorSelect}
         onSelectToken={handleTokenSelect}
         onUnlink={handleUnlinkToken}
         currentTokenId={pickerContext?.currentAliasId}
-        currentValue={pickerContext && variables.find(v => v.id === pickerContext.variableId)?.valuesByMode[pickerContext.modeId]}
-        tokenType="color"
-        tokens={variables.filter(v => v.type === "color").map(v => ({
+        currentValue={pickerContext && allVariables.find(v => v.id === pickerContext.variableId)?.valuesByMode[pickerContext.modeId]}
+        tokens={allVariables.filter(v => v.type === "color").map(v => ({
           id: v.id,
           name: v.name,
           path: v.path,
           type: v.type,
-          collectionId: v.collectionId || "",
-          colorSwatch: v.valuesByMode[modes[0]?.modeId || ""]?.colorSwatch,
+          collectionId: v.libraryName || "Local",
+          collectionName: collections.find(c => c.id === v.collectionId)?.name || v.collectionId,
+          colorSwatch: v.valuesByMode[Object.keys(v.valuesByMode)[0]]?.colorSwatch,
         }))}
-        collections={[]}
+        collections={Array.from(new Set(allVariables.map(v => v.libraryName || "Local"))).map(lib => ({ id: lib, name: lib }))}
       />
     </div>
   );

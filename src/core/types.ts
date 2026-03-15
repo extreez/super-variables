@@ -48,6 +48,7 @@ export interface CollectionData {
   name: string;
   modes: Mode[];
   variableCount: number;
+  libraryName?: string;
 }
 
 // === Scopes Types ===
@@ -114,6 +115,7 @@ export interface TokenData {
   resolvedType: 'COLOR' | 'FLOAT' | 'STRING' | 'BOOLEAN';
   valuesByMode: Record<string, TokenValue>; // modeId -> value
   collectionId: string;
+  libraryName?: string;
   scopes: string[];
   description?: string;     // Figma Variable description
   hiddenFromPublishing?: boolean; // Figma Variable hiddenFromPublishing

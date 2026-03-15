@@ -44,6 +44,7 @@ async function readVariables(): Promise<VariablesPayload> {
     name: col.name,
     modes: col.modes.map(m => ({ modeId: m.modeId, name: m.name })),
     variableCount: col.variableIds.length,
+    libraryName: 'Local',
   }));
 
   // Map variables (tokens)
@@ -60,6 +61,7 @@ async function readVariables(): Promise<VariablesPayload> {
       resolvedType: v.resolvedType,
       valuesByMode,
       collectionId: v.variableCollectionId,
+      libraryName: 'Local',
       scopes: [...v.scopes],
       description: v.description,
       hiddenFromPublishing: v.hiddenFromPublishing,
@@ -175,25 +177,36 @@ function convertToFigmaValue(value: any, type: VariableResolvedDataType): Variab
 
   if (type === 'COLOR') {
     if (typeof value === 'string') {
-      const hex = value.replace('#', '');
-      if (hex.length === 6) {
+      const str = value.trim();
+      
+      // Parse HEX
+      if (str.startsWith('#')) {
+        const hex = str.replace('#', '');
+        if (hex.length === 6 || hex.length === 8) {
+          return {
+            r: parseInt(hex.substring(0, 2), 16) / 255,
+            g: parseInt(hex.substring(2, 4), 16) / 255,
+            b: parseInt(hex.substring(4, 6), 16) / 255,
+            a: hex.length === 8 ? parseInt(hex.substring(6, 8), 16) / 255 : 1
+          };
+        }
+      }
+      
+      // Parse rgb/rgba format
+      const rgbaMatch = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      if (rgbaMatch) {
         return {
-          r: parseInt(hex.substring(0, 2), 16) / 255,
-          g: parseInt(hex.substring(2, 4), 16) / 255,
-          b: parseInt(hex.substring(4, 6), 16) / 255,
-          a: 1
+          r: parseInt(rgbaMatch[1]) / 255,
+          g: parseInt(rgbaMatch[2]) / 255,
+          b: parseInt(rgbaMatch[3]) / 255,
+          a: rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1
         };
       }
-      // Parse rgb format
-      const rgbMatch = value.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      if (rgbMatch) {
-        return {
-          r: parseInt(rgbMatch[1]) / 255,
-          g: parseInt(rgbMatch[2]) / 255,
-          b: parseInt(rgbMatch[3]) / 255,
-          a: 1
-        };
-      }
+    }
+    
+    // If it's already an object (e.g. from UI)
+    if (typeof value === 'object' && value !== null && 'r' in value) {
+      return value;
     }
   }
 
