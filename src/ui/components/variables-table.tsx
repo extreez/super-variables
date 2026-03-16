@@ -5,6 +5,7 @@ import type { Variable } from "./variables-data";
 import { useRef, useEffect } from "react";
 import { TokenPicker } from "./token-picker";
 import { ColorPicker } from "./color-picker";
+import type { PluginConfig } from "../../core/types";
 
 interface VariablesTableProps {
   variables: Variable[];
@@ -13,6 +14,7 @@ interface VariablesTableProps {
   selectedId: string | null;
   selectedIds: string[];
   collections: { id: string, name: string, libraryName?: string }[];
+  pluginConfig?: PluginConfig;
   onSelect: (id: string, multi?: { shift: boolean, ctrl: boolean }) => void;
   onGitSyncClick?: () => void;
   onMinimizeClick?: () => void;
@@ -42,6 +44,7 @@ export function VariablesTable({
   selectedId,
   selectedIds,
   collections,
+  pluginConfig,
   onSelect,
   onGitSyncClick,
   onMinimizeClick,
@@ -592,191 +595,204 @@ export function VariablesTable({
                 })
                 .map(([path, groupVars]) => (
                   <div key={path} className="flex flex-col">
-                  {/* Group Path Header */}
-                  <div
-                    className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5]"
-                    style={{ top: 28 }} // Sticky below main headers
-                  >
-                    <span className="text-[10px] font-bold text-[#bbb] tracking-wider">
-                      {path}
-                    </span>
-                  </div>
+                    {/* Group Path Header */}
+                    <div
+                      className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5]"
+                      style={{ top: 28 }} // Sticky below main headers
+                    >
+                      <span className="text-[10px] font-bold text-[#bbb] tracking-wider">
+                        {path}
+                      </span>
+                    </div>
 
-                  {groupVars.map((variable) => {
-                    const isSelected = selectedIds.includes(variable.id);
-                    return (
-                      <div
-                        key={variable.id}
-                        ref={(el) => { itemRefs.current[variable.id] = el; }}
-                        onClick={(e) => onSelect(variable.id, { shift: e.shiftKey, ctrl: e.metaKey || e.ctrlKey })}
-                        className={`group/row flex cursor-pointer border-b border-[#f0f0f0] transition-colors ${isSelected
-                          ? "bg-[#0d99ff] text-white"
-                          : "hover:bg-[#f8f8f8] text-[#333]"
-                          }`}
-                        style={{ height: 36 }}
-                      >
-                        {/* Variable icon + name */}
-                        <div
-                          className="flex items-center gap-2 pl-3 pr-1 self-stretch shrink-0 justify-between group/name"
-                          style={{ width: columnWidths.name }}
-                          title={variable.name}
-                        >
-                          <div 
-                            className="flex items-center gap-2 min-w-0 flex-1" 
-                            onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              setEditingTokenNameId(variable.id);
-                              setTempTokenName(variable.path);
-                            }}
-                          >
-                            <VariableIcon
-                              className={isSelected ? "text-white/70" : "text-[#999]"}
-                              type={variable.type}
-                            />
-                            {editingTokenNameId === variable.id ? (
-                              <input
-                                type="text"
-                                value={tempTokenName}
-                                onChange={(e) => setTempTokenName(e.target.value)}
-                                onBlur={() => handleTokenNameBlur(variable.id)}
-                                onKeyDown={(e) => handleTokenNameKeyDown(e, variable.id)}
-                                className={`text-[11px] outline-none w-full border-none p-0 m-0 bg-transparent ${
-                                  isSelected ? "text-white" : "text-[#333]"
-                                }`}
-                                autoFocus
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            ) : (
-                              <span
-                                className="text-[11px] truncate flex-1 overflow-hidden"
-                                style={{ direction: 'rtl', textAlign: 'left' }}
-                              >
-                                <bdo dir="ltr">{variable.name}</bdo>
-                              </span>
-                            )}
-                          </div>
+                    {(() => {
+                      const order = pluginConfig?.tokenOrder?.[path] || [];
+                      const sortedVars = order.length > 0
+                        ? [...groupVars].sort((a, b) => {
+                          const idxA = order.indexOf(a.id);
+                          const idxB = order.indexOf(b.id);
+                          if (idxA === -1 && idxB === -1) return 0;
+                          if (idxA === -1) return 1;
+                          if (idxB === -1) return -1;
+                          return idxA - idxB;
+                        })
+                        : groupVars;
+
+                      return sortedVars.map((variable) => {
+                        const isSelected = selectedIds.includes(variable.id);
+                        return (
                           <div
-                            className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity"
-                            onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}
-                          >
-                            <button
-                              className={`cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
-                                }`}
-                              title="Link variable"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Link size={12} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Mode Value Cells */}
-                        {modes.map(mode => {
-                          const data = variable.valuesByMode[mode.modeId];
-                          const isEditing = editingCell?.variableId === variable.id && editingCell?.modeId === mode.modeId;
-
-                          return (
-                            <div
-                              key={mode.modeId}
-                              className={`border-l ${isSelected ? "border-white/20" : "border-[#e5e5e5]"
-                                } flex items-center gap-2 pl-4 pr-1 self-stretch shrink-0 justify-between group/value`}
-                              style={{ width: columnWidths[mode.modeId] || 220 }}
-                              title={data?.resolvedValue || data?.value}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (data) handleCellClick(variable, mode.modeId, e);
-                              }}
-                            >
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  value={tempCellValue}
-                                  onChange={(e) => setTempCellValue(e.target.value)}
-                                  onBlur={handleCellBlur}
-                                  onKeyDown={handleCellKeyDown}
-                                  className={`text-[11px] outline-none w-full border-none p-0 m-0 bg-transparent ${isSelected ? "text-white placeholder-white/50" : "text-[#333] placeholder-[#ccc]"
-                                    }`}
-                                  autoFocus
-                                />
-                              ) : (
-                                <>
-                                  <div
-                                    className={`inline-flex items-center gap-1.5 rounded-[6px] min-w-0 max-w-full overflow-hidden ${data?.isAlias
-                                      ? `pl-1 pr-2 py-0.5 border ${isSelected ? "border-white/40 bg-white/10 text-white" : "border-[#e5e5e5] bg-transparent text-[#333]"}`
-                                      : ""
-                                      }`}
-                                  >
-                                    {data?.colorSwatch && (
-                                      <ColorVariableIcon color={data.colorSwatch} />
-                                    )}
-                                    <span
-                                      className="text-[11px] whitespace-nowrap truncate overflow-hidden"
-                                      style={{ direction: 'rtl', textAlign: 'left' }}
-                                    >
-                                      <bdo dir="ltr">{data?.value || ""}</bdo>
-                                    </span>
-                                  </div>
-                                  {data?.isAlias ? (
-                                    <button
-                                      className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
-                                        }`}
-                                      title="Go to alias"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (data.aliasTargetId && onNavigateToTarget) {
-                                          onNavigateToTarget(data.aliasTargetId, variable.id);
-                                        } else if (data.aliasTargetId) {
-                                          onSelect(data.aliasTargetId);
-                                        }
-                                      }}
-                                    >
-                                      <Target size={12} />
-                                    </button>
-                                  ) : (
-                                    <button
-                                      className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
-                                        }`}
-                                      title="Link to token"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenTokenPicker(variable, mode.modeId, e);
-                                      }}
-                                    >
-                                      <Hexagon size={12} />
-                                    </button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          );
-                        })}
-
-                        {/* Empty area after value — with border */}
-                        <div
-                          className={`border-l ${isSelected ? "border-white/20" : "border-[#e5e5e5]"
-                            } self-stretch flex-1`}
-                        />
-
-                        {/* Sliders icon on hover — right edge */}
-                        <div
-                          className="self-stretch shrink-0 flex items-center justify-center"
-                          style={{ width: 28 }}
-                        >
-                          <button
-                            className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 ${isSelected ? "text-white/60 hover:text-white" : "text-[#ccc] hover:text-[#999]"
+                            key={variable.id}
+                            ref={(el) => { itemRefs.current[variable.id] = el; }}
+                            onClick={(e) => onSelect(variable.id, { shift: e.shiftKey, ctrl: e.metaKey || e.ctrlKey })}
+                            className={`group/row flex cursor-pointer border-b border-[#f0f0f0] transition-colors ${isSelected
+                              ? "bg-[#0d99ff] text-white"
+                              : "hover:bg-[#f8f8f8] text-[#333]"
                               }`}
-                            title="Settings"
-                            onClick={(e) => e.stopPropagation()}
+                            style={{ height: 36 }}
                           >
-                            <SlidersHorizontal size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ));
+                            {/* Variable icon + name */}
+                            <div
+                              className="flex items-center gap-2 pl-3 pr-1 self-stretch shrink-0 justify-between group/name"
+                              style={{ width: columnWidths.name }}
+                              title={variable.name}
+                            >
+                              <div
+                                className="flex items-center gap-2 min-w-0 flex-1"
+                                onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingTokenNameId(variable.id);
+                                  setTempTokenName(variable.path);
+                                }}
+                              >
+                                <VariableIcon
+                                  className={isSelected ? "text-white/70" : "text-[#999]"}
+                                  type={variable.type}
+                                />
+                                {editingTokenNameId === variable.id ? (
+                                  <input
+                                    type="text"
+                                    value={tempTokenName}
+                                    onChange={(e) => setTempTokenName(e.target.value)}
+                                    onBlur={() => handleTokenNameBlur(variable.id)}
+                                    onKeyDown={(e) => handleTokenNameKeyDown(e, variable.id)}
+                                    className={`text-[11px] outline-none w-full border-none p-0 m-0 bg-transparent ${isSelected ? "text-white" : "text-[#333]"
+                                      }`}
+                                    autoFocus
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                ) : (
+                                  <span
+                                    className="text-[11px] truncate flex-1 overflow-hidden"
+                                    style={{ direction: 'rtl', textAlign: 'left' }}
+                                  >
+                                    <bdo dir="ltr">{variable.name}</bdo>
+                                  </span>
+                                )}
+                              </div>
+                              <div
+                                className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity"
+                                onContextMenu={(e) => handleTokenContextMenu(e, variable.id)}
+                              >
+                                <button
+                                  className={`cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                                    }`}
+                                  title="Link variable"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Link size={12} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Mode Value Cells */}
+                            {modes.map(mode => {
+                              const data = variable.valuesByMode[mode.modeId];
+                              const isEditing = editingCell?.variableId === variable.id && editingCell?.modeId === mode.modeId;
+
+                              return (
+                                <div
+                                  key={mode.modeId}
+                                  className={`border-l ${isSelected ? "border-white/20" : "border-[#e5e5e5]"
+                                    } flex items-center gap-2 pl-4 pr-1 self-stretch shrink-0 justify-between group/value`}
+                                  style={{ width: columnWidths[mode.modeId] || 220 }}
+                                  title={data?.resolvedValue || data?.value}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (data) handleCellClick(variable, mode.modeId, e);
+                                  }}
+                                >
+                                  {isEditing ? (
+                                    <input
+                                      type="text"
+                                      value={tempCellValue}
+                                      onChange={(e) => setTempCellValue(e.target.value)}
+                                      onBlur={handleCellBlur}
+                                      onKeyDown={handleCellKeyDown}
+                                      className={`text-[11px] outline-none w-full border-none p-0 m-0 bg-transparent ${isSelected ? "text-white placeholder-white/50" : "text-[#333] placeholder-[#ccc]"
+                                        }`}
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <>
+                                      <div
+                                        className={`inline-flex items-center gap-1.5 rounded-[6px] min-w-0 max-w-full overflow-hidden ${data?.isAlias
+                                          ? `pl-1 pr-2 py-0.5 border ${isSelected ? "border-white/40 bg-white/10 text-white" : "border-[#e5e5e5] bg-transparent text-[#333]"}`
+                                          : ""
+                                          }`}
+                                      >
+                                        {data?.colorSwatch && (
+                                          <ColorVariableIcon color={data.colorSwatch} />
+                                        )}
+                                        <span
+                                          className="text-[11px] whitespace-nowrap truncate overflow-hidden"
+                                          style={{ direction: 'rtl', textAlign: 'left' }}
+                                        >
+                                          <bdo dir="ltr">{data?.value || ""}</bdo>
+                                        </span>
+                                      </div>
+                                      {data?.isAlias ? (
+                                        <button
+                                          className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                                            }`}
+                                          title="Go to alias"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (data.aliasTargetId && onNavigateToTarget) {
+                                              onNavigateToTarget(data.aliasTargetId, variable.id);
+                                            } else if (data.aliasTargetId) {
+                                              onSelect(data.aliasTargetId);
+                                            }
+                                          }}
+                                        >
+                                          <Target size={12} />
+                                        </button>
+                                      ) : (
+                                        <button
+                                          className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 shrink-0 ${isSelected ? "text-white/60 hover:text-white" : "text-[#999] hover:text-[#333]"
+                                            }`}
+                                          title="Link to token"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenTokenPicker(variable, mode.modeId, e);
+                                          }}
+                                        >
+                                          <Hexagon size={12} />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                            {/* Empty area after value — with border */}
+                            <div
+                              className={`border-l ${isSelected ? "border-white/20" : "border-[#e5e5e5]"
+                                } self-stretch flex-1`}
+                            />
+
+                            {/* Sliders icon on hover — right edge */}
+                            <div
+                              className="self-stretch shrink-0 flex items-center justify-center"
+                              style={{ width: 28 }}
+                            >
+                              <button
+                                className={`opacity-0 group-hover/row:opacity-100 transition-opacity cursor-pointer p-0.5 ${isSelected ? "text-white/60 hover:text-white" : "text-[#ccc] hover:text-[#999]"
+                                  }`}
+                                title="Settings"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <SlidersHorizontal size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                ));
             })()}
           </div>
         </div>

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, Plus, Download, Upload, RefreshCw, ChevronDown, ChevronRight, ChevronsUp, Folder, FolderOpen, Type, Trash2, Layers, Copy, ArrowDownAz } from "lucide-react";
 import { Reorder } from "motion/react";
 import { EmojiPicker } from "./emoji-picker";
+import { SidebarDnDItem } from "./sidebar-dnd-item";
 import type { Collection, Group } from "./variables-data";
 
 interface SidebarProps {
@@ -331,73 +332,55 @@ export function Sidebar({
             {collections.map((col) => {
               const isSelected = selectedCollection === col.name;
               return (
-                <div
+                <SidebarDnDItem
                   key={col.id || col.name}
-                  onClick={() => onSelectCollection(col.name)}
-                  onDoubleClick={(e) => { e.stopPropagation(); handleStartCollectionRename(col); }}
-                  onContextMenu={(e) => handleCollectionContextMenu(e, col)}
-                  onDragStart={(e: React.DragEvent) => {
-                    e.dataTransfer.setData('application/json', JSON.stringify({ id: col.id || col.name, type: 'collection' }));
-                    e.dataTransfer.effectAllowed = 'move';
-                  }}
-                  onDragOver={(e: React.DragEvent) => {
-                    e.preventDefault();
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const y = e.clientY - rect.top;
-                    let pos: 'top' | 'middle' | 'bottom' = 'middle';
-                    if (y < rect.height * 0.25) pos = 'top';
-                    else if (y > rect.height * 0.75) pos = 'bottom';
-                    setDragOverInfo({ id: col.id || col.name, type: 'collection', position: pos });
-                  }}
-                  onDragLeave={() => setDragOverInfo(null)}
-                  onDrop={(e: React.DragEvent) => {
-                    e.preventDefault();
-                    const info = dragOverInfo; // Capture current info
-                    setDragOverInfo(null);
-
-                    try {
-                      const rawData = e.dataTransfer.getData('application/json');
-                      if (!rawData) return;
-                      const data = JSON.parse(rawData);
-
-                      if (data.type === 'group') {
-                        onMoveGroup?.(data.sources, col.id || col.name, '');
-                      } else if (data.type === 'collection') {
-                        if (info?.position === 'middle') {
-                          onMergeCollections?.(data.id, col.id || col.name);
-                        } else if (info) {
-                          // Manual reorder
-                          const currentOrder = collections.map(c => c.id || c.name);
-                          let newOrder = [...currentOrder];
-                          newOrder = newOrder.filter(id => id !== data.id);
-                          const targetIdx = newOrder.indexOf(col.id || col.name);
-                          if (targetIdx !== -1) {
-                            const insertIdx = info.position === 'top' ? targetIdx : targetIdx + 1;
-                            newOrder.splice(insertIdx, 0, data.id);
-                            onReorderCollections?.(newOrder);
-                          }
+                  id={col.id || col.name}
+                  type="SIDEBAR_COLLECTION"
+                  accept={['SIDEBAR_COLLECTION', 'SIDEBAR_GROUP']}
+                  data={{ id: col.id || col.name, type: 'collection' }}
+                  onDropItem={(data, position) => {
+                    if (data.type === 'group') {
+                      onMoveGroup?.(data.sources, col.id || col.name, '');
+                    } else if (data.type === 'collection') {
+                      if (position === 'middle') {
+                        onMergeCollections?.(data.id, col.id || col.name);
+                      } else if (position) {
+                        // Manual reorder
+                        const currentOrder = collections.map(c => c.id || c.name);
+                        let newOrder = [...currentOrder];
+                        newOrder = newOrder.filter(id => id !== data.id);
+                        const targetIdx = newOrder.indexOf(col.id || col.name);
+                        if (targetIdx !== -1) {
+                          const insertIdx = position === 'top' ? targetIdx : targetIdx + 1;
+                          newOrder.splice(insertIdx, 0, data.id);
+                          onReorderCollections?.(newOrder);
                         }
                       }
-                    } catch (err) { }
+                    }
                   }}
-                  draggable
-                  className={`flex items-center gap-2 px-3 py-[5px] cursor-pointer transition-colors group/col relative outline-none ${isSelected
-                      ? "bg-[#0d99ff]/10 text-[#0d99ff]"
-                      : "text-[#333] hover:bg-[#f5f5f5]"
-                    } ${dragOverInfo?.id === (col.id || col.name) && dragOverInfo.position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''
-                    }`}
                 >
-                  {dragOverInfo?.id === (col.id || col.name) && dragOverInfo.position === 'top' && (
-                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
-                  )}
-                  {dragOverInfo?.id === (col.id || col.name) && dragOverInfo.position === 'bottom' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
-                  )}
-                  <EmojiPicker
-                    currentEmoji={collectionEmojis[col.name] || null}
-                    defaultLetter={col.name[0]}
-                    onSelect={(emoji) => onSetCollectionEmoji(col.name, emoji)}
-                  />
+                  {({ isDragging, isOver, position, setNodeRef }) => (
+                    <div
+                      ref={setNodeRef}
+                      onClick={() => onSelectCollection(col.name)}
+                      onDoubleClick={(e) => { e.stopPropagation(); handleStartCollectionRename(col); }}
+                      onContextMenu={(e) => handleCollectionContextMenu(e, col)}
+                      className={`flex items-center gap-2 px-3 py-[5px] cursor-pointer transition-colors group/col relative outline-none ${isSelected
+                          ? "bg-[#0d99ff]/10 text-[#0d99ff]"
+                          : "text-[#333] hover:bg-[#f5f5f5]"
+                        } ${isOver && position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''} ${isDragging ? 'opacity-50' : ''}`}
+                    >
+                      {isOver && position === 'top' && (
+                        <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                      )}
+                      {isOver && position === 'bottom' && (
+                        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                      )}
+                      <EmojiPicker
+                        currentEmoji={collectionEmojis[col.name] || null}
+                        defaultLetter={col.name[0]}
+                        onSelect={(emoji) => onSetCollectionEmoji(col.name, emoji)}
+                      />
                   {editingCollectionId === (col.id || col.name) ? (
                     <input
                       type="text"
@@ -419,6 +402,8 @@ export function Sidebar({
                     {col.count}
                   </span>
                 </div>
+              )}
+              </SidebarDnDItem>
               );
             })}
           </div>
@@ -489,96 +474,113 @@ export function Sidebar({
               }
 
               return (
-                <div
+                <SidebarDnDItem
                   key={grp.fullName}
+                  id={grp.fullName}
+                  type="SIDEBAR_GROUP"
+                  accept={['SIDEBAR_GROUP']}
                   draggable={grp.fullName !== 'All'}
-                  onClick={(e) => {
-                    onSelectGroup(grp.fullName, { shift: e.shiftKey, ctrl: e.metaKey || e.ctrlKey });
-                  }}
-                  onDoubleClick={(e) => {
-                    if (grp.fullName !== 'All') {
-                      e.stopPropagation();
-                      handleStartGroupRename(grp);
-                    }
-                  }}
-                  onContextMenu={(e) => handleGroupContextMenu(e, grp)}
-                  onDragStart={(e: React.DragEvent) => {
-                    const sources = selectedGroups.includes(grp.fullName) ? selectedGroups : [grp.fullName];
-                    e.dataTransfer.setData('application/json', JSON.stringify({ sources, type: 'group' }));
-                    e.dataTransfer.effectAllowed = 'move';
-                  }}
-                  onDragOver={(e: React.DragEvent) => {
-                    e.preventDefault();
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const y = e.clientY - rect.top;
-                    let pos: 'top' | 'middle' | 'bottom' = 'middle';
+                  data={{ sources: selectedGroups.includes(grp.fullName) ? selectedGroups : [grp.fullName], type: 'group' }}
+                  onDropItem={(data, position) => {
+                    if (data.type === 'group') {
+                      const targetId = grp.fullName;
+                      const colId = collections.find(c => c.name === selectedCollection)?.id || selectedCollection;
 
-                    if (grp.fullName === 'All') {
-                      pos = 'middle';
-                    } else {
-                      if (y < rect.height * 0.25) pos = 'top';
-                      else if (y > rect.height * 0.75) pos = 'bottom';
-                    }
+                      if (position === 'middle') {
+                        // Nesting logic: targetParentPath becomes targetId, meaning drop inside the target group
+                        let targetParentPath = targetId === 'All' ? '' : targetId;
+                        const filteredSources = data.sources.filter((s: string) => s !== targetParentPath && !targetParentPath.startsWith(s + '/'));
+                        if (filteredSources.length > 0) {
+                          onMoveGroup?.(filteredSources, colId, targetParentPath);
+                        }
+                      } else if (position) {
+                        // Reordering / placing adjacent
+                        let targetParentPath = targetId === 'All' ? '' : targetId.split('/').slice(0, -1).join('/');
+                        
+                        // We must ensure we don't accidentally move a parent into its own child.
+                        const isChildOfSource = data.sources.some((s: string) => targetParentPath === s || targetParentPath.startsWith(s + '/'));
 
-                    setDragOverInfo({ id: grp.fullName, type: 'group', position: pos });
-                  }}
-                  onDragLeave={() => setDragOverInfo(null)}
-                  onDrop={(e: React.DragEvent) => {
-                    e.preventDefault();
-                    const info = dragOverInfo;
-                    setDragOverInfo(null);
-
-                    try {
-                      const rawData = e.dataTransfer.getData('application/json');
-                      if (!rawData) return;
-                      const data = JSON.parse(rawData);
-
-                      if (data.type === 'group' && info) {
-                        const targetId = info.id;
-                        const pos = info.position;
-                        const colId = collections.find(c => c.name === selectedCollection)?.id || selectedCollection;
-
-                        if (pos === 'middle') {
-                          // Nesting logic
-                          let targetParentPath = targetId === 'All' ? '' : targetId;
-                          const filteredSources = data.sources.filter((s: string) => s !== targetParentPath && !targetParentPath.startsWith(s + '/'));
+                        if (!isChildOfSource) {
+                          const filteredSources = data.sources.filter((s: string) => s !== targetParentPath);
                           if (filteredSources.length > 0) {
-                            onMoveGroup?.(filteredSources, colId, targetParentPath);
+                             onMoveGroup?.(filteredSources, colId, targetParentPath);
                           }
-                        } else {
-                          // Reordering logic
-                          const currentOrder = customGroupOrder[colId] || groups.map(g => g.fullName);
-                          let newOrder = [...currentOrder];
+                        }
+                        
+                        // Reordering logic
+                        const currentOrder = customGroupOrder[colId] || groups.map(g => g.fullName);
+                        
+                        // Find all sources AND their descendants in the exact order they currently appear
+                        const sourcesWithDescendants = currentOrder.filter(id => 
+                          data.sources.some((s: string) => id === s || id.startsWith(s + '/'))
+                        );
 
-                          // Remove sources
-                          newOrder = newOrder.filter(id => !data.sources.includes(id));
+                        // Remove them from the array
+                        let newOrder = currentOrder.filter(id => !sourcesWithDescendants.includes(id));
 
-                          // Insert at target
+                        // Predict new names if the hierarchy changed
+                        const renamedSourcesWithDescendants = sourcesWithDescendants.map(id => {
+                          const source = data.sources.find((s: string) => id === s || id.startsWith(s + '/'));
+                          if (!source) return id;
+                          
+                          const sourceParentPath = source.split('/').slice(0, -1).join('/');
+                          if (sourceParentPath === targetParentPath) return id; // No parent change
+                          
+                          const sourceName = source.split('/').pop() || source;
+                          const relativePath = id.substring(source.length);
+                          return targetParentPath 
+                            ? `${targetParentPath}/${sourceName}${relativePath}`
+                            : `${sourceName}${relativePath}`;
+                        });
+
+                        // Insert at target
+                        if (position === 'top') {
                           const targetIdx = newOrder.indexOf(targetId);
                           if (targetIdx !== -1) {
-                            const insertIdx = pos === 'top' ? targetIdx : targetIdx + 1;
-                            newOrder.splice(insertIdx, 0, ...data.sources);
+                            newOrder.splice(targetIdx, 0, ...renamedSourcesWithDescendants);
+                            onReorderGroups?.(colId, newOrder);
+                          }
+                        } else if (position === 'bottom') {
+                          // Find targetId and all its descendants to insert AFTER the entire target subtree
+                          const targetSubtree = currentOrder.filter(id => id === targetId || id.startsWith(targetId + '/'));
+                          const targetSubtreeInNewOrder = newOrder.filter(id => targetSubtree.includes(id));
+                          const lastTargetId = targetSubtreeInNewOrder[targetSubtreeInNewOrder.length - 1] || targetId;
+                          
+                          const targetIdx = newOrder.indexOf(lastTargetId);
+                          if (targetIdx !== -1) {
+                            newOrder.splice(targetIdx + 1, 0, ...renamedSourcesWithDescendants);
                             onReorderGroups?.(colId, newOrder);
                           }
                         }
                       }
-                    } catch (err) {
-                      console.error("Drop failed", err);
                     }
                   }}
-                  className={`flex items-center gap-1.5 py-[5px] cursor-pointer transition-colors group/row select-none relative outline-none ${isSelected
-                      ? "bg-[#0d99ff]/10 text-[#0d99ff]"
-                      : "text-[#333] hover:bg-[#f5f5f5]"
-                    } ${dragOverInfo?.id === grp.fullName && dragOverInfo.position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''
-                    }`}
-                  style={{ paddingLeft: (grp.level * 12) + 12, paddingRight: 12 }}
                 >
-                  {dragOverInfo?.id === grp.fullName && dragOverInfo.position === 'top' && (
-                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
-                  )}
-                  {dragOverInfo?.id === grp.fullName && dragOverInfo.position === 'bottom' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
-                  )}
+                  {({ isDragging, isOver, position, setNodeRef }) => (
+                    <div
+                      ref={setNodeRef}
+                      onClick={(e) => {
+                        onSelectGroup(grp.fullName, { shift: e.shiftKey, ctrl: e.metaKey || e.ctrlKey });
+                      }}
+                      onDoubleClick={(e) => {
+                        if (grp.fullName !== 'All') {
+                          e.stopPropagation();
+                          handleStartGroupRename(grp);
+                        }
+                      }}
+                      onContextMenu={(e) => handleGroupContextMenu(e, grp)}
+                      className={`flex items-center gap-1.5 py-[5px] cursor-pointer transition-colors group/row select-none relative outline-none ${isSelected
+                          ? "bg-[#0d99ff]/10 text-[#0d99ff]"
+                          : "text-[#333] hover:bg-[#f5f5f5]"
+                        } ${isOver && position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''} ${isDragging ? 'opacity-50' : ''}`}
+                      style={{ paddingLeft: (grp.level * 12) + 12, paddingRight: 12 }}
+                    >
+                      {isOver && position === 'top' && (
+                        <div className="absolute top-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                      )}
+                      {isOver && position === 'bottom' && (
+                        <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
+                      )}
                   <div className="w-4 h-4 flex items-center justify-center shrink-0">
                     {grp.isFolder && (
                       <button
@@ -617,7 +619,9 @@ export function Sidebar({
                   >
                     {grp.count}
                   </span>
-                </div>
+                    </div>
+                  )}
+                </SidebarDnDItem>
               );
             })}
           </div>

@@ -11,7 +11,7 @@ import {
   groups as mockGroups,
   semanticVariables as mockVariables,
 } from "./components/variables-data";
-import { VariablesPayload, CollectionData, TokenData } from "../core/types";
+import { VariablesPayload, CollectionData, TokenData, PluginConfig } from "../core/types";
 import { useEffect, useCallback, useRef } from "react";
 
 export default function App() {
@@ -38,8 +38,16 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [customCollectionOrder, setCustomCollectionOrder] = useState<string[]>([]);
   const [customGroupOrder, setCustomGroupOrder] = useState<Record<string, string[]>>({});
+  const [customVariableOrder, setCustomVariableOrder] = useState<string[]>([]);
   const [isSortedAlpha, setIsSortedAlpha] = useState(false);
   const [activeDetailTab, setActiveDetailTab] = useState<'path' | 'details' | 'scope'>('details');
+
+  // Plugin config state
+  const [pluginConfig, setPluginConfig] = useState<PluginConfig>({
+    collectionOrder: [],
+    groupOrder: {},
+    tokenOrder: {}
+  });
 
   // Window Resize state
   const [windowSize, setWindowSize] = useState({ width: 900, height: 620 });
@@ -103,6 +111,19 @@ export default function App() {
       } else if (msg.type === 'collection-created') {
         setSelectedCollection(msg.name);
         setSelectedGroup("All");
+      } else if (msg.type === 'config-loaded') {
+        const config = msg.config as PluginConfig;
+        setPluginConfig(config);
+        // Apply custom orders from config
+        if (config.collectionOrder.length > 0) {
+          setCustomCollectionOrder(config.collectionOrder);
+        }
+        if (Object.keys(config.groupOrder).length > 0) {
+          setCustomGroupOrder(config.groupOrder);
+        }
+      } else if (msg.type === 'config-saved') {
+        const config = msg.config as PluginConfig;
+        setPluginConfig(config);
       }
     };
 
@@ -334,7 +355,14 @@ export default function App() {
           aliasTargetId: v.aliasTargetId
         }
       }
-    }))).sort((a, b) => a.path.localeCompare(b.path));
+    }))).sort((a, b) => {
+      const idxA = customVariableOrder.indexOf(a.id);
+      const idxB = customVariableOrder.indexOf(b.id);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.path.localeCompare(b.path);
+    });
 
   const currentCollectionModes = realCollections.find(c => c.name === selectedCollection)?.modes || [{ modeId: 'default', name: 'Value' }];
 
@@ -464,6 +492,29 @@ export default function App() {
       pluginMessage: {
         type: 'delete-variables',
         variableIds
+      }
+    }, '*');
+  };
+
+  const handleMoveVariableToGroup = (variableId: string, groupPath: string) => {
+    const variable = allVariables.find(v => v.id === variableId);
+    if (!variable) return;
+    const parts = variable.name.split('/');
+    const leafName = parts.pop();
+    const newName = groupPath === 'Root' ? leafName : `${groupPath}/${leafName}`;
+    if (variable.name !== newName) {
+      parent.postMessage({ pluginMessage: { type: 'update-variable-name', variableId, newName } }, '*');
+    }
+  };
+
+  const handleMoveVariableToVariable = (draggedId: string, targetId: string, position: 'before' | 'after') => {
+    // Отправляем сообщение в Figma для перемещения и сохранения в конфиг
+    parent.postMessage({
+      pluginMessage: {
+        type: 'move-variable',
+        variableId: draggedId,
+        targetVariableId: targetId,
+        position
       }
     }, '*');
   };
@@ -663,6 +714,7 @@ export default function App() {
         selectedId={selectedVariableId}
         selectedIds={selectedVariableIds}
         collections={displayCollections}
+        pluginConfig={pluginConfig}
         onSelect={(id, multi) => {
           if (!multi || (!multi.shift && !multi.ctrl)) {
             setSelectedVariableId(id);
@@ -722,7 +774,9 @@ export default function App() {
         onDuplicateVariables={handleDuplicateVariables}
         onDeleteVariables={handleDeleteVariables}
         onNewGroupWithSelection={handleNewGroupWithSelection}
-        onEditVariable={() => setActiveDetailTab('scope')}
+        onMoveVariableToVariable={handleMoveVariableToVariable}
+        onMoveVariableToGroup={handleMoveVariableToGroup}
+        onEditVariable={() => setShowDetailsPanel(true)}
         onImportClick={() => setShowImportModal(true)}
         onExportClick={() => setShowExportModal(true)}
       />

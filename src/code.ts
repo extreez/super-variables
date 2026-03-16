@@ -1,7 +1,24 @@
 // Super Variables — Plugin Code (Figma Sandbox)
 // Reads variables from Figma and sends structured data to UI.
 
-import { CollectionData, TokenData, TokenValue, VariablesPayload } from './core/types';
+import { CollectionData, TokenData, TokenValue, VariablesPayload, PluginConfig } from './core/types';
+
+const CONFIG_KEY = 'super-variables-config';
+
+// === Plugin Config Storage ===
+
+async function savePluginConfig(config: PluginConfig) {
+  figma.root.setPluginData(CONFIG_KEY, JSON.stringify(config));
+}
+
+async function loadPluginConfig(): Promise<PluginConfig> {
+  const data = figma.root.getPluginData(CONFIG_KEY);
+  return data ? JSON.parse(data) : {
+    collectionOrder: [],
+    groupOrder: {},
+    tokenOrder: {}
+  };
+}
 
 figma.showUI(__html__, {
   width: 900,
@@ -178,7 +195,7 @@ function convertToFigmaValue(value: any, type: VariableResolvedDataType): Variab
   if (type === 'COLOR') {
     if (typeof value === 'string') {
       const str = value.trim();
-      
+
       // Parse HEX
       if (str.startsWith('#')) {
         const hex = str.replace('#', '');
@@ -191,7 +208,7 @@ function convertToFigmaValue(value: any, type: VariableResolvedDataType): Variab
           };
         }
       }
-      
+
       // Parse rgb/rgba format
       const rgbaMatch = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
       if (rgbaMatch) {
@@ -203,7 +220,7 @@ function convertToFigmaValue(value: any, type: VariableResolvedDataType): Variab
         };
       }
     }
-    
+
     // If it's already an object (e.g. from UI)
     if (typeof value === 'object' && value !== null && 'r' in value) {
       return value;
@@ -222,7 +239,9 @@ figma.ui.onmessage = async (msg: { type: string; payload?: any; width?: number; 
   switch (msg.type) {
     case 'ui-ready': {
       const data = await readVariables();
+      const config = await loadPluginConfig();
       figma.ui.postMessage({ type: 'variables-loaded', payload: data });
+      figma.ui.postMessage({ type: 'config-loaded', config });
       break;
     }
 
@@ -480,7 +499,15 @@ figma.ui.onmessage = async (msg: { type: string; payload?: any; width?: number; 
           });
 
           for (const token of tokensToMove) {
-            const relativePath = token.name.substring(sourceFullName.length);
+            // Need to correctly preserve token structure. 
+            // e.g. move 'Color/Brand' into 'Theme', 'Color/Brand/Primary' should become 'Theme/Brand/Primary'
+
+            // The part of the token name *after* the sourceFullName
+            let relativePath = '';
+            if (token.name.startsWith(sourceFullName + '/')) {
+              relativePath = token.name.substring(sourceFullName.length);
+            }
+
             const sourceName = sourceFullName.split('/').pop() || sourceFullName;
             const newPath = targetParentPath
               ? `${targetParentPath}/${sourceName}${relativePath}`
@@ -695,6 +722,74 @@ figma.ui.onmessage = async (msg: { type: string; payload?: any; width?: number; 
       break;
     }
 
+    case 'move-variable': {
+      const { variableId, targetVariableId, position } = msg as any;
+      // position: 'before' | 'after'
+
+      try {
+        const variable = await figma.variables.getVariableByIdAsync(variableId);
+        const target = await figma.variables.getVariableByIdAsync(targetVariableId);
+
+        if (!variable || !target) {
+          figma.notify('Variable not found', { error: true });
+          break;
+        }
+
+        // Загружаем конфиг
+        const config = await loadPluginConfig();
+
+        // Helper для получения пути группы из имени переменной
+        const getGroupPath = (name: string): string => {
+          const parts = name.split('/');
+          parts.pop(); // убираем имя токена
+          return parts.join('/') || 'Root';
+        };
+
+        const varGroup = getGroupPath(variable.name);
+        const targetGroup = getGroupPath(target.name);
+
+        // Если перемещение между группами — обновляем имя переменной
+        if (varGroup !== targetGroup) {
+          const varName = variable.name.split('/').pop();
+          const newName = targetGroup === 'Root'
+            ? varName
+            : `${targetGroup}/${varName}`;
+          variable.name = newName;
+        }
+
+        // Обновляем порядок токенов в конфиге
+        const varGroupOrder = config.tokenOrder[varGroup] || [];
+        const targetGroupOrder = config.tokenOrder[targetGroup] || [];
+
+        // Удаляем из старой позиции
+        const varIdx = varGroupOrder.indexOf(variableId);
+        if (varIdx !== -1) {
+          varGroupOrder.splice(varIdx, 1);
+        }
+
+        // Вставляем в новую позицию
+        const targetIdx = targetGroupOrder.indexOf(targetVariableId);
+        const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+        const actualInsertIdx = insertIdx < 0 ? 0 : insertIdx;
+        targetGroupOrder.splice(actualInsertIdx, 0, variableId);
+
+        // Сохраняем обновлённый порядок
+        config.tokenOrder[varGroup] = varGroupOrder.filter(id => id !== variableId);
+        config.tokenOrder[targetGroup] = targetGroupOrder;
+
+        await savePluginConfig(config);
+
+        // Обновляем UI
+        const data = await readVariables();
+        figma.ui.postMessage({ type: 'variables-loaded', payload: data });
+        figma.ui.postMessage({ type: 'config-saved', config });
+
+      } catch (e) {
+        figma.notify('Move failed: ' + (e as any).message, { error: true });
+      }
+      break;
+    }
+
     case 'set-variable-alias': {
       const { variableId, modeId, targetTokenId, targetTokenName } = msg as any;
       const variable = await figma.variables.getVariableByIdAsync(variableId);
@@ -729,6 +824,12 @@ figma.ui.onmessage = async (msg: { type: string; payload?: any; width?: number; 
 
     case 'request-eyedropper': {
       figma.notify('Eyedropper coming soon', { timeout: 1500 });
+      break;
+    }
+
+    case 'notify': {
+      const { message, options } = msg as any;
+      figma.notify(message, options);
       break;
     }
 

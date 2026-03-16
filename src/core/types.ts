@@ -137,3 +137,16 @@ export interface VariablesPayload {
   collections: CollectionData[];
   tokens: TokenData[];
 }
+
+// === Plugin Config for persistent storage ===
+
+export interface PluginConfig {
+  // Порядок коллекций (массив ID)
+  collectionOrder: string[];
+
+  // Порядок групп внутри каждой коллекции (collectionId -> group paths)
+  groupOrder: Record<string, string[]>;
+
+  // Порядок токенов внутри каждой группы (groupPath -> token IDs)
+  tokenOrder: Record<string, string[]>;
+}
