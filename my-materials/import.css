@@ -1,0 +1,116 @@
+/* --- SUPER_VARIABLES_CONFIG: {"platform":"web","format":"css","colorFormat":"rgba","unitSystem":"px","baseFontSize":16,"groupDivider":"--"} --- */
+
+:root {
+    /* --- Collection: Palette, Mode: Color --- */
+    --palette--primary-50: rgba(239, 246, 255, 1);
+    --palette--primary-100: rgba(219, 234, 254, 1);
+    --palette--primary-200: rgba(191, 219, 254, 1);
+    --palette--primary-300: rgba(147, 197, 253, 1);
+    --palette--primary-400: rgba(96, 165, 250, 1);
+    --palette--primary-500: rgba(59, 130, 246, 1);
+    --palette--primary-600: rgba(37, 99, 235, 1);
+    --palette--primary-700: rgba(29, 78, 216, 1);
+    --palette--primary-800: rgba(30, 64, 175, 1);
+    --palette--primary-900: rgba(30, 58, 138, 1);
+    --palette--neutral-50: rgba(250, 250, 250, 1);
+    --palette--neutral-100: rgba(245, 245, 245, 1);
+    --palette--neutral-200: rgba(229, 229, 229, 1);
+    --palette--neutral-300: rgba(212, 212, 212, 1);
+    --palette--neutral-400: rgba(163, 163, 163, 1);
+    --palette--neutral-500: rgba(115, 115, 115, 1);
+    --palette--neutral-600: rgba(82, 82, 82, 1);
+    --palette--neutral-700: rgba(64, 64, 64, 1);
+    --palette--neutral-800: rgba(38, 38, 38, 1);
+    --palette--neutral-900: rgba(23, 23, 23, 1);
+    --palette--success-50: rgba(240, 253, 244, 1);
+    --palette--success-500: rgba(34, 197, 94, 1);
+    --palette--success-700: rgba(21, 128, 61, 1);
+    --palette--error-50: rgba(254, 242, 242, 1);
+    --palette--error-500: rgba(239, 68, 68, 1);
+    --palette--error-700: rgba(185, 28, 28, 1);
+    --palette--warning-50: rgba(255, 251, 235, 1);
+    --palette--warning-500: rgba(234, 179, 8, 1);
+    --palette--warning-700: rgba(161, 98, 7, 1);
+
+    /* --- Collection: Palette, Mode: Mode 2 --- */
+    --palette--primary-50: rgba(239, 246, 255, 1);
+    --palette--primary-100: rgba(219, 234, 254, 1);
+    --palette--primary-200: rgba(191, 219, 254, 1);
+    --palette--primary-300: rgba(147, 197, 253, 1);
+    --palette--primary-400: rgba(96, 165, 250, 1);
+    --palette--primary-500: rgba(59, 130, 246, 1);
+    --palette--primary-600: rgba(37, 99, 235, 1);
+    --palette--primary-700: rgba(29, 78, 216, 1);
+    --palette--primary-800: rgba(30, 64, 175, 1);
+    --palette--primary-900: rgba(30, 58, 138, 1);
+    --palette--neutral-50: rgba(250, 250, 250, 1);
+    --palette--neutral-100: rgba(245, 245, 245, 1);
+    --palette--neutral-200: rgba(229, 229, 229, 1);
+    --palette--neutral-300: rgba(212, 212, 212, 1);
+    --palette--neutral-400: rgba(163, 163, 163, 1);
+    --palette--neutral-500: rgba(115, 115, 115, 1);
+    --palette--neutral-600: rgba(82, 82, 82, 1);
+    --palette--neutral-700: rgba(64, 64, 64, 1);
+    --palette--neutral-800: rgba(38, 38, 38, 1);
+    --palette--neutral-900: rgba(23, 23, 23, 1);
+    --palette--success-50: rgba(240, 253, 244, 1);
+    --palette--success-500: rgba(34, 197, 94, 1);
+    --palette--success-700: rgba(21, 128, 61, 1);
+    --palette--error-50: rgba(254, 242, 242, 1);
+    --palette--error-500: rgba(239, 68, 68, 1);
+    --palette--error-700: rgba(185, 28, 28, 1);
+    --palette--warning-50: rgba(255, 251, 235, 1);
+    --palette--warning-500: rgba(234, 179, 8, 1);
+    --palette--warning-700: rgba(161, 98, 7, 1);
+
+    /* --- Collection: Colors, Mode: LightMode --- */
+    --colortest--background-elevated: rgba(255, 255, 255, 1);
+    --colortest--background-overlay: var(--colortest--background-elevated);
+    --colortest--text-inverse: rgba(255, 255, 255, 1);
+    --colortest--background-base: var(--palette--neutral-100);
+    --colortest--surface-primary: var(--palette--primary-500);
+    --colortest--surface--primary-hover: var(--palette--primary-600);
+    --colortest--surface--primary-active: var(--palette--primary-700);
+    --colortest--surface-secondary: var(--colortest--background-overlay);
+    --colortest--surface--secondary-hover: var(--palette--neutral-200);
+    --colortest--surface-tertiary: var(--colortest--background-elevated);
+    --colortest--text-primary: rgba(238, 162, 162, 1);
+    --colortest--text-secondary: var(--palette--neutral-600);
+    --colortest--text-tertiary: var(--palette--neutral-400);
+    --colortest--text-link: var(--palette--primary-600);
+    --colortest--text--link-hover: var(--palette--primary-700);
+    --colortest--border-default: var(--palette--neutral-200);
+    --colortest--border-focus: var(--palette--primary-500);
+    --colortest--border-error: var(--palette--error-500);
+    --colortest--status-success: var(--palette--success-500);
+    --colortest-error: var(--palette--error-500);
+    --colortest--status-warning: var(--palette--warning-500);
+    --test-color: rgba(255, 255, 255, 1);
+    --Color: rgba(255, 255, 255, 1);
+
+    /* --- Collection: Colors, Mode: DarkMode --- */
+    --colortest--background-elevated: var(--palette--neutral-800);
+    --colortest--background-overlay: rgba(0, 0, 0, 0.7);
+    --colortest--text-inverse: var(--palette--neutral-900);
+    --colortest--background-base: var(--palette--neutral-900);
+    --colortest--surface-primary: var(--palette--primary-500);
+    --colortest--surface--primary-hover: var(--palette--primary-400);
+    --colortest--surface--primary-active: var(--palette--primary-300);
+    --colortest--surface-secondary: var(--palette--neutral-800);
+    --colortest--surface--secondary-hover: var(--palette--neutral-700);
+    --colortest--surface-tertiary: var(--palette--neutral-700);
+    --colortest--text-primary: var(--palette--neutral-50);
+    --colortest--text-secondary: var(--palette--neutral-300);
+    --colortest--text-tertiary: var(--palette--neutral-500);
+    --colortest--text-link: var(--palette--primary-400);
+    --colortest--text--link-hover: var(--palette--primary-300);
+    --colortest--border-default: var(--palette--neutral-700);
+    --colortest--border-focus: var(--palette--primary-500);
+    --colortest--border-error: var(--palette--error-500);
+    --colortest--status-success: var(--palette--success-500);
+    --colortest-error: var(--palette--error-500);
+    --colortest--status-warning: var(--palette--warning-500);
+    --test-color: rgba(255, 255, 255, 1);
+    --Color: rgba(255, 255, 255, 1);
+
+}

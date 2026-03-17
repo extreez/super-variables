@@ -4,6 +4,7 @@ import { Reorder } from "motion/react";
 import { EmojiPicker } from "./emoji-picker";
 import { SidebarDnDItem } from "./sidebar-dnd-item";
 import type { Collection, Group } from "./variables-data";
+import { Language, translations } from "../locales";
 
 interface SidebarProps {
   collections: Collection[];
@@ -14,6 +15,7 @@ interface SidebarProps {
   collapsed: boolean;
   collectionEmojis: Record<string, string | null>;
   groupEmojis: Record<string, string | null>;
+  language?: Language;
   onSelectCollection: (name: string) => void;
   onSelectGroup: (fullName: string, multi?: { shift: boolean, ctrl: boolean }) => void;
   onToggleCollapse: () => void;
@@ -48,6 +50,7 @@ export function Sidebar({
   collapsed,
   collectionEmojis,
   groupEmojis,
+  language = 'en',
   onSelectCollection,
   onSelectGroup,
   selectedGroups = [],
@@ -72,6 +75,7 @@ export function Sidebar({
   onMoveGroup,
   onMergeCollections,
 }: SidebarProps) {
+  const t = translations[language];
   const [sectionsCollapsed, setSectionsCollapsed] = useState({ collections: false, groups: false });
   const [isGroupsSortedAlpha, setIsGroupsSortedAlpha] = useState(false);
   const [dragOverInfo, setDragOverInfo] = useState<{
@@ -175,7 +179,7 @@ export function Sidebar({
           <button
             onClick={onToggleCollapse}
             className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-            title="Expand"
+            title={t.sidebar.expand}
           >
             <PanelLeftOpen size={14} />
           </button>
@@ -244,7 +248,7 @@ export function Sidebar({
           <button
             className="flex items-center justify-center text-white bg-[#0d99ff] hover:bg-[#0b7fd4] cursor-pointer rounded transition-colors"
             style={{ width: SQUARE_BTN, height: SQUARE_BTN }}
-            title="Import"
+            title={t.topbar.import}
             onClick={onImportClick}
           >
             <Download size={14} />
@@ -252,7 +256,7 @@ export function Sidebar({
           <button
             className="flex items-center justify-center text-white bg-[#0d99ff] hover:bg-[#0b7fd4] cursor-pointer rounded transition-colors"
             style={{ width: SQUARE_BTN, height: SQUARE_BTN }}
-            title="Export"
+            title={t.topbar.export}
             onClick={onExportClick}
           >
             <Upload size={14} />
@@ -273,7 +277,7 @@ export function Sidebar({
           <button
             onClick={onToggleCollapse}
             className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-            title="Collapse"
+            title={t.sidebar.collapse}
           >
             <PanelLeftClose size={14} />
           </button>
@@ -286,7 +290,7 @@ export function Sidebar({
             <button
               onClick={(e) => { e.stopPropagation(); onRefreshClick(); }}
               className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-              title="Reload variables"
+              title={t.sidebar.reloadVariables}
             >
               <RefreshCw size={14} />
             </button>
@@ -306,20 +310,20 @@ export function Sidebar({
             onClick={() => setSectionsCollapsed((s: any) => ({ ...s, collections: !s.collections }))}
           >
             {sectionsCollapsed.collections ? <ChevronRight size={12} className="text-[#999]" /> : <ChevronDown size={12} className="text-[#999]" />}
-            <span className="text-[10px] text-[#999] uppercase tracking-wider font-semibold">Collections</span>
+            <span className="text-[10px] text-[#999] uppercase tracking-wider font-semibold">{t.sidebar.collections}</span>
           </div>
           <div className="flex items-center gap-0.5">
             {/* Alphabetical sort button */}
             <button
               className={`p-1 rounded hover:bg-[#eee] transition-colors ${isSortedAlpha ? 'text-[#0d99ff] bg-[#0d99ff]/5' : 'text-[#999]'}`}
               onClick={(e) => { e.stopPropagation(); onSortAlpha?.(); }}
-              title="Sort alphabetically"
+              title={t.sidebar.sortAlpha}
             >
               <ArrowDownAz size={12} />
             </button>
             <button
               className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-              title="Add collection"
+              title={t.sidebar.createCollection}
               onClick={(e) => { e.stopPropagation(); onCreateCollection?.(); }}
             >
               <Plus size={12} />
@@ -422,20 +426,20 @@ export function Sidebar({
             onClick={() => setSectionsCollapsed((s: any) => ({ ...s, groups: !s.groups }))}
           >
             {sectionsCollapsed.groups ? <ChevronRight size={12} className="text-[#999]" /> : <ChevronDown size={12} className="text-[#999]" />}
-            <span className="text-[10px] text-[#999] uppercase tracking-wider font-semibold">Groups</span>
+            <span className="text-[10px] text-[#999] uppercase tracking-wider font-semibold">{t.sidebar.groups}</span>
           </div>
           <div className="flex items-center gap-0.5">
             <button
               className={`p-1 rounded hover:bg-[#eee] transition-colors ${isGroupsSortedAlpha ? 'text-[#0d99ff] bg-[#0d99ff]/5' : 'text-[#999]'}`}
               onClick={(e) => { e.stopPropagation(); setIsGroupsSortedAlpha(!isGroupsSortedAlpha); }}
-              title="Sort groups alphabetically"
+              title={t.sidebar.sortAlpha}
             >
               <ArrowDownAz size={12} />
             </button>
             <button
               onClick={collapseAllGroups}
               className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-              title="Collapse all"
+              title={t.sidebar.collapseAll}
             >
               <ChevronsUp size={12} />
             </button>
@@ -477,6 +481,8 @@ export function Sidebar({
               }
 
               const isGroupEditing = editingGroupFullName === grp.fullName;
+
+              const displayName = grp.name === 'All' ? t.sidebar.all : grp.name;
 
               return (
                 <SidebarDnDItem
@@ -616,7 +622,7 @@ export function Sidebar({
                           onClick={(e) => e.stopPropagation()}
                         />
                       ) : (
-                        <span className="text-[11px] flex-1 truncate">{grp.name}</span>
+                        <span className="text-[11px] flex-1 truncate">{displayName}</span>
                       )}
                       <span
                         className={`text-[10px] ${isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
@@ -638,20 +644,20 @@ export function Sidebar({
         <button
           className="flex-1 flex items-center justify-center text-white bg-[#0d99ff] hover:bg-[#0b7fd4] cursor-pointer rounded transition-colors gap-1.5 text-[11px]"
           style={{ height: SQUARE_BTN }}
-          title="Import"
+          title={t.topbar.import}
           onClick={onImportClick}
         >
           <Download size={12} />
-          Import
+          {t.topbar.import}
         </button>
         <button
           className="flex-1 flex items-center justify-center text-white bg-[#0d99ff] hover:bg-[#0b7fd4] cursor-pointer rounded transition-colors gap-1.5 text-[11px]"
           style={{ height: SQUARE_BTN }}
-          title="Export"
+          title={t.topbar.export}
           onClick={onExportClick}
         >
           <Upload size={12} />
-          Export
+          {t.topbar.export}
         </button>
       </div>
 

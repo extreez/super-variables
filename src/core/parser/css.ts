@@ -1,0 +1,119 @@
+import { ImportToken, ImportSettings } from '../types';
+
+export function parseCSS(content: string, settings: ImportSettings): ImportToken[] {
+  const tokens: ImportToken[] = [];
+  
+  // 1. Try to parse header config
+  let config: any = null;
+  const configMatch = content.match(/\/\* --- SUPER_VARIABLES_CONFIG: (.*?) --- \*\//);
+  if (configMatch) {
+    try {
+      config = JSON.parse(configMatch[1]);
+    } catch (e) {
+      console.warn("Failed to parse SUPER_VARIABLES_CONFIG");
+    }
+  }
+
+  const effectiveDivider = config?.groupDivider || settings.groupDivider || '--';
+
+  // State
+  let currentCollection = settings.targetCollectionId || 'Imported';
+  let currentMode = settings.targetModeId || 'default';
+  
+  // Clean comments but keep our specific mode markers
+  const lines = content.split('\n');
+  
+  // Track selector context
+  let inSelector = false;
+  let currentSelector = '';
+
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+
+    // Check for inline collection/mode comments
+    const modeMatch = line.match(/\/\* --- Collection: (.*?), Mode: (.*?) --- \*\//);
+    if (modeMatch) {
+      currentCollection = modeMatch[1].trim();
+      currentMode = modeMatch[2].trim();
+      continue;
+    }
+
+    // Enter selector
+    if (line.includes('{')) {
+      inSelector = true;
+      currentSelector = line.split('{')[0].trim();
+      
+      // If it's a class selector (e.g. .theme-dark), treat it as a mode
+      if (currentSelector.startsWith('.') && currentSelector !== ':root') {
+        currentMode = currentSelector.replace('.', '');
+      }
+      continue;
+    }
+
+    // Exit selector
+    if (line.includes('}')) {
+      inSelector = false;
+      continue;
+    }
+
+    // Parse CSS variable
+    if (inSelector && line.startsWith('--')) {
+      const match = line.match(/--([^:]+):\s*(.+);?/);
+      if (match) {
+        const rawName = match[1].trim();
+        let value = match[2].trim().replace(/;$/, '');
+        
+        // Reverse formatting based on divider
+        // Rule: --color--brand-500 -> color/brand/500
+        let figmaName = rawName;
+        if (effectiveDivider !== '/') {
+          // Replace double dash with slash
+          const parts = rawName.split(effectiveDivider);
+          const lastPart = parts.pop() || '';
+          
+          // If the last part has a single dash, it was likely the last slash
+          // Example: brand-500 -> brand/500
+          // But we must be careful not to break names like primary-button
+          // The most reliable way is what the user said: last slash -> single dash
+          // So we always replace the LAST single dash in the WHOLE name if it exists?
+          // No, let's stick to the divider logic and handle the last part.
+          
+          if (parts.length > 0) {
+            figmaName = parts.join('/') + '/' + lastPart.replace('-', '/');
+          } else {
+            // No double dashes, maybe it's just one slash that became a dash
+            figmaName = lastPart.replace('-', '/');
+          }
+        }
+
+        // Robust alias detection: var(  --name  )
+        const aliasMatch = value.match(/var\s*\(\s*--([^)]+)\s*\)/);
+        const isAlias = !!aliasMatch;
+        let finalValue = value;
+        
+        if (isAlias && aliasMatch) {
+          const aliasRawName = aliasMatch[1].trim();
+          // Apply same restoration logic to alias target
+          const aliasParts = aliasRawName.split(effectiveDivider);
+          const aliasLastPart = aliasParts.pop() || '';
+          if (aliasParts.length > 0) {
+            finalValue = aliasParts.join('/') + '/' + aliasLastPart.replace('-', '/');
+          } else {
+            finalValue = aliasLastPart.replace('-', '/');
+          }
+        }
+
+        tokens.push({
+          name: figmaName,
+          value: finalValue,
+          collection: currentCollection,
+          mode: currentMode,
+          isAlias
+        });
+      }
+    }
+  }
+
+  return tokens;
+}

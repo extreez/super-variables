@@ -13,6 +13,8 @@ import {
 } from "./components/variables-data";
 import { VariablesPayload, CollectionData, TokenData, PluginConfig } from "../core/types";
 import { useEffect, useCallback, useRef } from "react";
+import { SettingsModal } from "./components/settings-modal";
+import { Language, translations } from "./locales";
 
 export default function App() {
   const [selectedCollection, setSelectedCollection] = useState("Colors");
@@ -29,6 +31,7 @@ export default function App() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showGitSyncModal, setShowGitSyncModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isWindowMinimized, setIsWindowMinimized] = useState(false);
   const [navigationReturn, setNavigationReturn] = useState<{ id: string, name: string } | null>(null);
 
@@ -36,6 +39,7 @@ export default function App() {
   const [realCollections, setRealCollections] = useState<CollectionData[]>([]);
   const [realTokens, setRealTokens] = useState<TokenData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [language, setLanguage] = useState<Language>('en');
   const [customCollectionOrder, setCustomCollectionOrder] = useState<string[]>([]);
   const [customGroupOrder, setCustomGroupOrder] = useState<Record<string, string[]>>({});
   const [customVariableOrder, setCustomVariableOrder] = useState<string[]>([]);
@@ -108,12 +112,30 @@ export default function App() {
           setSelectedCollection(prev => prev || data.collections[0].name);
           setSelectedGroup(prev => prev || "All");
         }
+      } else if (msg.type === 'import-complete') {
+        const log = msg.log;
+        
+        // Convert log to File and trigger download if there are changes
+        if (log.added.length > 0 || log.updated.length > 0 || log.deleted.length > 0 || Object.keys(log.renames).length > 0 || log.errors.length > 0) {
+           const blob = new Blob([JSON.stringify(log, null, 2)], { type: "application/json" });
+           const url = URL.createObjectURL(blob);
+           const a = document.createElement("a");
+           a.href = url;
+           a.download = `import_log_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+           a.click();
+           URL.revokeObjectURL(url);
+        }
       } else if (msg.type === 'collection-created') {
         setSelectedCollection(msg.name);
         setSelectedGroup("All");
       } else if (msg.type === 'config-loaded') {
         const config = msg.config as PluginConfig;
         setPluginConfig(config);
+        
+        if ((config as any).language) {
+          setLanguage((config as any).language);
+        }
+
         // Apply custom orders from config
         if (config.collectionOrder.length > 0) {
           setCustomCollectionOrder(config.collectionOrder);
@@ -133,6 +155,16 @@ export default function App() {
       clearInterval(interval);
     };
   }, [refreshData]);
+
+  const handleUpdateLanguage = (lang: Language) => {
+    setLanguage(lang);
+    parent.postMessage({ 
+      pluginMessage: { 
+        type: 'save-config', 
+        config: { ...pluginConfig, language: lang } 
+      } 
+    }, '*');
+  };
 
   const handleMinimize = () => {
     setIsWindowMinimized(true);
@@ -696,6 +728,7 @@ export default function App() {
           collapsed={sidebarCollapsed}
           collectionEmojis={collectionEmojis}
           groupEmojis={groupEmojis}
+          language={language}
           onSelectCollection={(name) => {
             setSelectedCollection(name);
             setSelectedGroup("All");
@@ -739,6 +772,7 @@ export default function App() {
         selectedIds={selectedVariableIds}
         collections={displayCollections}
         pluginConfig={pluginConfig}
+        language={language}
         onSelect={(id, multi) => {
           if (!multi || (!multi.shift && !multi.ctrl)) {
             setSelectedVariableId(id);
@@ -770,6 +804,7 @@ export default function App() {
           }
         }}
         onGitSyncClick={() => setShowGitSyncModal(true)}
+        onShowSettings={() => setShowSettingsModal(true)}
         onMinimizeClick={handleMinimize}
         onNavigateToTarget={handleNavigateToTarget}
         navigationReturn={navigationReturn}
@@ -800,7 +835,7 @@ export default function App() {
         onNewGroupWithSelection={handleNewGroupWithSelection}
         onMoveVariableToVariable={handleMoveVariableToVariable}
         onMoveVariableToGroup={handleMoveVariableToGroup}
-        onEditVariable={() => setShowDetailsPanel(true)}
+        onEditVariable={() => {}}
         onImportClick={() => setShowImportModal(true)}
         onExportClick={() => setShowExportModal(true)}
       />
@@ -826,6 +861,7 @@ export default function App() {
         modes={currentCollectionModes}
         collections={displayCollections}
         activeTab={activeDetailTab}
+        language={language}
         onActiveTabChange={setActiveDetailTab}
         onToggleCollapse={() => setDetailsCollapsed(!detailsCollapsed)}
         onUpdateName={(variableId, newName) => {
@@ -891,15 +927,23 @@ export default function App() {
         onClose={() => setShowExportModal(false)}
         collections={realCollections}
         tokens={realTokens}
+        language={language}
       />
       <ImportModal
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImport}
+        language={language}
       />
       <GitSyncModal
         isOpen={showGitSyncModal}
         onClose={() => setShowGitSyncModal(false)}
+      />
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        language={language}
+        onLanguageChange={handleUpdateLanguage}
       />
     </div>
   );

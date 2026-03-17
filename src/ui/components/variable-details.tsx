@@ -93,6 +93,8 @@ function tokenScopesToFigmaScopes(tokenScopes: TokenScopes, type: string): strin
   return figmaScopes;
 }
 
+import { Language, translations } from "../locales";
+
 interface VariableDetailsProps {
   variable: Variable | null;
   variables: Variable[];
@@ -101,6 +103,7 @@ interface VariableDetailsProps {
   collapsed: boolean;
   modes: { modeId: string; name: string }[];
   selectedModeId?: string;
+  language?: Language;
   onToggleCollapse: () => void;
   onUpdateDescription?: (variableId: string, description: string) => void;
   onUpdateHidden?: (variableId: string, hidden: boolean) => void;
@@ -122,6 +125,7 @@ export function VariableDetails({
   collapsed,
   modes,
   selectedModeId,
+  language = 'en',
   onToggleCollapse,
   onUpdateDescription,
   onUpdateHidden,
@@ -132,6 +136,7 @@ export function VariableDetails({
   activeTab: externalActiveTab,
   onActiveTabChange,
 }: VariableDetailsProps) {
+  const t = translations[language];
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [nameHovered, setNameHovered] = useState(false);
   const [internalActiveTab, setInternalActiveTab] = useState<TabType>('details');
@@ -556,18 +561,18 @@ export function VariableDetails({
         className="flex items-center justify-between px-3 border-b border-[#e5e5e5] shrink-0"
         style={{ height: 36 }}
       >
-        <span className="text-[11px] text-[#999]">Variable details</span>
+        <span className="text-[11px] text-[#999]">{t.details.title}</span>
         <button
           onClick={onToggleCollapse}
           className="text-[#999] hover:text-[#333] cursor-pointer p-1"
-          title="Collapse"
+          title={t.sidebar.collapse}
         >
           <PanelRightClose size={14} />
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center border-b border-[#e5e5e5] shrink-0" style={{ height: 32 }}>
+      <div className="flex items-center border-b border-[#e5e5e5] shrink-0" style={{ height: 28 }}>
         {variables.length <= 1 && (
           <>
             <button
@@ -578,7 +583,7 @@ export function VariableDetails({
                 }`}
             >
               <Folder size={12} />
-              Path
+              {t.details.path}
             </button>
             <button
               onClick={() => setActiveTab('details')}
@@ -588,7 +593,7 @@ export function VariableDetails({
                 }`}
             >
               <Type size={12} />
-              Details
+              {t.details.details}
             </button>
           </>
         )}
@@ -600,7 +605,7 @@ export function VariableDetails({
             }`}
         >
           <SlidersHorizontal size={12} />
-          Scope
+          {t.details.scopes}
         </button>
       </div>
 
@@ -636,7 +641,7 @@ export function VariableDetails({
               {/* Mode Selector */}
               {modes.length > 1 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-[#999] shrink-0">Mode:</span>
+                  <span className="text-[11px] text-[#999] shrink-0">{t.table.mode}:</span>
                   <select
                     value={effectiveModeId || ''}
                     onChange={(e) => setLocalSelectedModeId(e.target.value)}
@@ -652,7 +657,7 @@ export function VariableDetails({
               {/* Collection */}
               {variable.collectionId && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-[#999] shrink-0">Collection:</span>
+                  <span className="text-[11px] text-[#999] shrink-0">{t.sidebar.collections}:</span>
                   <span className="text-[11px] text-[#0d99ff] truncate">
                     {collections.find(c => c.id === variable.collectionId)?.name || variable.collectionId}
                   </span>
@@ -661,7 +666,7 @@ export function VariableDetails({
 
               {/* Alias Chain / Value Resolution */}
               <div className="border-t border-[#e5e5e5] pt-3 mt-1">
-                <span className="text-[11px] text-[#999] block mb-2">Value Resolution</span>
+                <span className="text-[11px] text-[#999] block mb-2">{t.import.executionPlan}</span>
                 {(() => {
                   const modeData = effectiveModeId ? variable.valuesByMode[effectiveModeId] : null;
                   if (!modeData) return null;
@@ -742,7 +747,7 @@ export function VariableDetails({
               {/* Name - Full Path */}
               <div className="flex items-start gap-2">
                 <span className="text-[11px] text-[#999] shrink-0 w-16">
-                  Name
+                  {t.table.name}
                 </span>
                 <div className="flex-1 min-w-0">
                   {editingName === variable.id ? (
@@ -774,7 +779,7 @@ export function VariableDetails({
               {/* Description */}
               <div className="flex items-start gap-2">
                 <span className="text-[11px] text-[#999] shrink-0 w-16">
-                  Description
+                  {t.details.description}
                 </span>
                 <div className="flex-1 min-w-0">
                   {editingDescription === variable.id ? (
@@ -796,7 +801,7 @@ export function VariableDetails({
                       className="text-[11px] text-[#333] px-2 py-1 rounded hover:bg-[#f5f5f5] cursor-text truncate"
                       title={variable.description}
                     >
-                      {variable.description || <span className="text-[#ccc]">Add description...</span>}
+                      {variable.description || <span className="text-[#ccc]">{t.details.addDescription}</span>}
                     </div>
                   )}
                 </div>
@@ -804,7 +809,7 @@ export function VariableDetails({
 
               {/* Values by Mode */}
               <div className="flex flex-col gap-2">
-                <span className="text-[11px] text-[#999]">Values</span>
+                <span className="text-[11px] text-[#999]">{t.table.mode + 's'}</span>
                 {modes.map((mode) => {
                   const modeData = variable.valuesByMode[mode.modeId];
 
@@ -898,7 +903,7 @@ export function VariableDetails({
               {/* Hide from Publishing */}
               <div className="border-t border-[#e5e5e5] pt-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-[#333]">Hide from publishing</span>
+                  <span className="text-[11px] text-[#333]">{t.details.hideFromPublishing}</span>
                   <input
                     type="checkbox"
                     checked={!!variable.hiddenFromPublishing}
@@ -919,7 +924,7 @@ export function VariableDetails({
                 <span className="text-[11px] font-semibold text-[#333]">
                   {variables.length > 1
                     ? `Selected: ${variables.length} token(s)`
-                    : 'Token Scopes'}
+                    : t.details.scopes}
                 </span>
                 <button
                   onClick={() => handleSelectAllScopes('all', true)}
@@ -939,7 +944,7 @@ export function VariableDetails({
       ) : (
         <div className="flex-1 flex flex-col">
           <div className="px-4 py-6 text-[11px] text-[#999] flex-1">
-            Select a variable to see details
+            {t.details.noVariableSelected}
           </div>
           <div
             className="flex items-center px-3 border-t border-[#e5e5e5] shrink-0"
@@ -977,7 +982,7 @@ export function VariableDetails({
               }`}
           >
             {copiedField === "hard" ? <Check size={12} /> : <Copy size={12} />}
-            Copy hard
+            {t.details.copyHard}
           </button>
           <button
             onClick={() => {
@@ -990,7 +995,7 @@ export function VariableDetails({
               }`}
           >
             {copiedField === "token" ? <Check size={12} /> : <Copy size={12} />}
-            Copy token
+            {t.details.copyToken}
           </button>
         </div>
       )}

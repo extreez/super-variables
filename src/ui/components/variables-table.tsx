@@ -8,6 +8,7 @@ import { ColorPicker } from "./color-picker";
 import type { PluginConfig } from "../../core/types";
 import { DraggableRow } from "./draggable-row";
 import { DroppableGroupHeader } from "./droppable-group-header";
+import { Language, translations } from "../locales";
 
 interface VariablesTableProps {
   variables: Variable[];
@@ -17,9 +18,11 @@ interface VariablesTableProps {
   selectedIds: string[];
   collections: { id: string, name: string, libraryName?: string }[];
   pluginConfig?: PluginConfig;
+  language?: Language;
   onSelect: (id: string, multi?: { shift: boolean, ctrl: boolean }) => void;
   onGitSyncClick?: () => void;
   onMinimizeClick?: () => void;
+  onShowSettings?: () => void;
   onNavigateToTarget?: (targetId: string, fromId: string) => void;
   navigationReturn?: { id: string, name: string } | null;
   onClearNavigationReturn?: () => void;
@@ -49,9 +52,11 @@ export function VariablesTable({
   selectedIds,
   collections,
   pluginConfig,
+  language = 'en',
   onSelect,
   onGitSyncClick,
   onMinimizeClick,
+  onShowSettings,
   onNavigateToTarget,
   navigationReturn,
   onClearNavigationReturn,
@@ -70,6 +75,7 @@ export function VariablesTable({
   onImportClick,
   onExportClick,
 }: VariablesTableProps) {
+  const t = translations[language];
   const [searchQuery, setSearchQuery] = useState("");
   const [editingModeId, setEditingModeId] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ variableId: string, modeId: string } | null>(null);
@@ -433,7 +439,7 @@ export function VariablesTable({
           <Search size={12} className="text-[#999] shrink-0" />
           <input
             type="text"
-            placeholder="Search variables..."
+            placeholder={t.topbar.searchPlaceholder}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="bg-transparent text-[11px] text-[#333] placeholder-[#bbb] outline-none w-full border-none p-0 m-0"
@@ -493,18 +499,18 @@ export function VariablesTable({
             <button
               onClick={onGitSyncClick}
               className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-              title="Git Sync"
+              title={t.topbar.git}
             >
               <GitBranch size={14} />
             </button>
           )}
-          <button className="text-[#999] hover:text-[#333] p-1 cursor-pointer" title="History">
+          <button className="text-[#999] hover:text-[#333] p-1 cursor-pointer" title={t.topbar.history}>
             <History size={14} />
           </button>
-          <button className="text-[#999] hover:text-[#333] p-1 cursor-pointer" title="Settings">
+          <button onClick={onShowSettings} className="text-[#999] hover:text-[#333] p-1 cursor-pointer" title={t.topbar.settings}>
             <Settings size={14} />
           </button>
-          <button onClick={onMinimizeClick} className="text-[#999] hover:text-[#333] p-1 cursor-pointer" title="Minimize">
+          <button onClick={onMinimizeClick} className="text-[#999] hover:text-[#333] p-1 cursor-pointer" title={t.topbar.minimize}>
             <Minimize2 size={14} />
           </button>
         </div>
@@ -525,7 +531,7 @@ export function VariablesTable({
               className="flex items-center text-[10px] text-[#999] pl-10 pr-4 tracking-wider shrink-0 relative"
               style={{ width: columnWidths.name }}
             >
-              Name
+              {t.table.name}
               <div
                 onMouseDown={(e) => startColumnResize('name', e)}
                 onDoubleClick={() => handleColumnResizerDoubleClick('name')}
@@ -572,7 +578,7 @@ export function VariablesTable({
               <button
                 onClick={onCreateMode}
                 className="opacity-0 group-hover/header:opacity-100 transition-opacity text-[#999] hover:text-[#0d99ff] cursor-pointer p-0.5"
-                title="Add mode"
+                title={t.table.addMode}
               >
                 <Plus size={14} />
               </button>
@@ -985,7 +991,7 @@ export function VariablesTable({
             onClick={() => setShowAddTokenMenu(!showAddTokenMenu)}
           >
             <Plus size={12} />
-            Add new token
+            {t.table.addNewToken}
           </button>
 
           {/* Add token type menu */}
@@ -1048,7 +1054,7 @@ export function VariablesTable({
             onClick={() => setShowCreateStyleMenu(!showCreateStyleMenu)}
           >
             <Plus size={12} />
-            Create style
+            {t.table.createStyle}
           </button>
 
           {/* Create style menu */}

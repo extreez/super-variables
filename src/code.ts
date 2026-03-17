@@ -131,50 +131,232 @@ function convertValue(
 
 // === Write variables to Figma ===
 
-async function importVariables(payload: { mode: 'create' | 'update'; data: any }) {
-  const { data } = payload;
-
-  // For simplicity, we'll use/create a collection named "Imported"
-  let collection = (await figma.variables.getLocalVariableCollectionsAsync()).find(c => c.name === 'Imported');
-  if (!collection) {
-    collection = figma.variables.createVariableCollection('Imported');
-  }
-
-  const modeId = collection.modes[0].modeId;
-
-  // Flatten the nested JSON and create variables
-  const processObject = (obj: any, path: string = '') => {
-    for (const [key, value] of Object.entries(obj)) {
-      const currentPath = path ? `${path}/${key}` : key;
-
-      if (typeof value === 'object' && value !== null && !('r' in value)) {
-        processObject(value, currentPath);
-      } else {
-        // Create or find variable
-        let variable = figma.variables.getLocalVariables().find(v => v.name === currentPath && v.variableCollectionId === collection!.id);
-
-        const type = getVariableType(value);
-        if (!variable) {
-          variable = figma.variables.createVariable(currentPath, collection!.id, type);
-        }
-
-        const figmaValue = convertToFigmaValue(value, type);
-        variable.setValueForMode(modeId, figmaValue);
-      }
-    }
+async function importVariables(payload: import('./core/types').ImportPayload) {
+  const { tokens, scopes, changes, settings } = payload;
+  const log: import('./core/types').ImportLog = {
+    added: [],
+    updated: [],
+    deleted: [],
+    renames: {},
+    errors: []
   };
 
-  processObject(data);
-  figma.notify('Variables imported successfully');
+  try {
+    const figmaCollections = await figma.variables.getLocalVariableCollectionsAsync();
+    let figmaVariables = await figma.variables.getLocalVariablesAsync();
 
-  // Refresh data in UI
-  const updatedData = await readVariables();
-  figma.ui.postMessage({ type: 'variables-loaded', payload: updatedData });
+    // 1. Process Changes (Deletions & Renames)
+    if (changes) {
+      if (changes.deletions && Array.isArray(changes.deletions)) {
+        for (const path of changes.deletions) {
+          const varsToDelete = figmaVariables.filter(v => v.name === path || v.name.startsWith(path + '/'));
+          for (const v of varsToDelete) {
+            v.remove();
+            log.deleted.push(v.name);
+          }
+        }
+        figmaVariables = await figma.variables.getLocalVariablesAsync(); // refresh
+      }
+
+      if (changes.renames && typeof changes.renames === 'object') {
+        for (const [oldPath, newPath] of Object.entries(changes.renames)) {
+          const varsToRename = figmaVariables.filter(v => v.name === oldPath || v.name.startsWith(oldPath + '/'));
+          for (const v of varsToRename) {
+            const relativePath = v.name.substring(oldPath.length);
+            const finalNewPath = `${newPath}${relativePath}`;
+            v.name = finalNewPath;
+            log.renames[v.name] = finalNewPath;
+          }
+        }
+        figmaVariables = await figma.variables.getLocalVariablesAsync(); // refresh
+      }
+    }
+
+    // Helper to get or create collection
+    const getOrCreateCollection = (name: string) => {
+      let col = figmaCollections.find(c => c.name === name);
+      if (!col) {
+        col = figma.variables.createVariableCollection(name);
+        figmaCollections.push(col);
+      }
+      return col;
+    };
+
+    // Helper to get or create mode
+    const getOrCreateMode = (collection: VariableCollection, modeName: string) => {
+      let mode = collection.modes.find(m => m.name === modeName || m.name.toLowerCase() === modeName.toLowerCase());
+      if (!mode) {
+        // If collection only has "Mode 1", rename it instead of creating if it's the first import
+        if (collection.modes.length === 1 && collection.modes[0].name === 'Mode 1') {
+          collection.renameMode(collection.modes[0].modeId, modeName);
+          mode = collection.modes[0];
+        } else {
+          try {
+            const newModeId = collection.addMode(modeName);
+            mode = collection.modes.find(m => m.modeId === newModeId);
+          } catch (e) {
+            console.error(`Failed to add mode ${modeName}`, e);
+          }
+        }
+      }
+      return mode;
+    };
+
+    // 2. Process Tokens
+    if (tokens && tokens.length > 0) {
+      // Group tokens by Collection + Name to avoid duplicate creation
+      const tokenGroups: Record<string, {
+        name: string,
+        collection: string,
+        type: VariableResolvedDataType,
+        isAlias: boolean,
+        values: Record<string, any>, // modeName -> value
+        aliasModes: Set<string> // track which modes are aliases
+      }> = {};
+
+      for (const t of tokens) {
+        const colName = t.collection || settings.targetCollectionId || 'Imported';
+        const key = `${colName}||${t.name}`;
+        
+        if (!tokenGroups[key]) {
+          tokenGroups[key] = {
+            name: t.name,
+            collection: colName,
+            type: 'STRING', // Default, will refine below
+            isAlias: false,
+            values: {},
+            aliasModes: new Set()
+          };
+        }
+        
+        tokenGroups[key].values[t.mode || settings.targetModeId || 'default'] = t.value;
+        
+        if (t.isAlias) {
+          tokenGroups[key].isAlias = true;
+          tokenGroups[key].aliasModes.add(t.mode || settings.targetModeId || 'default');
+        } else {
+          // If we have at least one concrete value, use its type
+          tokenGroups[key].type = getVariableType(t.value);
+        }
+      }
+
+      // Pass 1: Create/Update Variables and set concrete values
+      for (const key of Object.keys(tokenGroups)) {
+        const group = tokenGroups[key];
+        const collection = getOrCreateCollection(group.collection);
+        
+        // Refine type for alias-only variables
+        if (group.aliasModes.size === Object.keys(group.values).length) {
+          // All modes are aliases. Try to find the first target to get the type
+          const firstAliasValue = Object.values(group.values)[0];
+          const target = figmaVariables.find(v => v.name === firstAliasValue);
+          if (target) group.type = target.resolvedType;
+        }
+
+        let variable = figmaVariables.find(v => v.name === group.name && v.variableCollectionId === collection.id);
+
+        if (variable) {
+          if (variable.resolvedType !== group.type) {
+            try {
+              variable.remove();
+              figmaVariables = figmaVariables.filter(v => v.id !== variable!.id);
+              variable = figma.variables.createVariable(group.name, collection, group.type);
+              figmaVariables.push(variable);
+              log.updated.push(`${group.name} (Recreated)`);
+            } catch (e) {
+              log.errors.push(`Failed to recreate ${group.name}`);
+              continue;
+            }
+          } else {
+            if (!log.updated.includes(group.name)) log.updated.push(group.name);
+          }
+        } else {
+          variable = figma.variables.createVariable(group.name, collection, group.type);
+          figmaVariables.push(variable);
+          log.added.push(group.name);
+        }
+
+        // Set concrete values
+        for (const [modeName, value] of Object.entries(group.values)) {
+          if (group.aliasModes.has(modeName)) continue; // Skip aliases in Pass 1
+
+          const mode = getOrCreateMode(collection, modeName);
+          if (!mode) continue;
+
+          try {
+            const figmaValue = convertToFigmaValue(value, group.type, settings.baseFontSize);
+            variable.setValueForMode(mode.modeId, figmaValue);
+          } catch (e: any) {
+            log.errors.push(`Value error ${group.name} [${modeName}]: ${e.message}`);
+          }
+        }
+      }
+
+      // Pass 2: Alias Resolution
+      figmaVariables = await figma.variables.getLocalVariablesAsync(); // REFRESH!
+      
+      for (const key of Object.keys(tokenGroups)) {
+        const group = tokenGroups[key];
+        if (!group.isAlias) continue;
+
+        const collection = getOrCreateCollection(group.collection);
+        const variable = figmaVariables.find(v => v.name === group.name && v.variableCollectionId === collection.id);
+        if (!variable) continue;
+
+        for (const modeName of group.aliasModes) {
+          const value = group.values[modeName];
+          const mode = getOrCreateMode(collection, modeName);
+          if (!mode) continue;
+
+          // Value is already the path (e.g. "color/brand/500")
+          const target = figmaVariables.find(v => v.name === value);
+          
+          if (target) {
+            try {
+              variable.setValueForMode(mode.modeId, { type: 'VARIABLE_ALIAS', id: target.id });
+            } catch (e: any) {
+              log.errors.push(`Link error ${group.name} -> ${value}: ${e.message}`);
+            }
+          } else {
+            log.errors.push(`Alias target not found: ${value}`);
+          }
+        }
+      }
+    }
+
+    // 3. Process Scopes
+    if (scopes && typeof scopes === 'object') {
+       for (const [path, scopeArray] of Object.entries(scopes)) {
+          const variable = figmaVariables.find(v => v.name === path);
+          if (variable && Array.isArray(scopeArray)) {
+             try {
+               variable.scopes = scopeArray as VariableScope[];
+               if (!log.updated.includes(path)) log.updated.push(`${path} (Scopes updated)`);
+             } catch (e) {
+               log.errors.push(`Failed to set scopes for ${path}`);
+             }
+          }
+       }
+    }
+
+    figma.ui.postMessage({ type: 'import-complete', log });
+    figma.notify(`Imported: ${log.added.length} added, ${log.updated.length} updated.`, { timeout: 3000 });
+
+    // Refresh data in UI
+    const updatedData = await readVariables();
+    figma.ui.postMessage({ type: 'variables-loaded', payload: updatedData });
+
+  } catch (error: any) {
+    figma.notify('Fatal Import Error: ' + error.message, { error: true });
+    log.errors.push(error.message);
+    figma.ui.postMessage({ type: 'import-complete', log });
+  }
 }
 
 function getVariableType(value: any): VariableResolvedDataType {
   if (typeof value === 'string') {
-    if (value.startsWith('#') || value.startsWith('rgba') || value.startsWith('rgb')) return 'COLOR';
+    if (value.startsWith('#') || value.startsWith('rgba') || value.startsWith('rgb') || value.startsWith('hsl')) return 'COLOR';
+    if (value.endsWith('px') || value.endsWith('rem')) return 'FLOAT';
     return 'STRING';
   }
   if (typeof value === 'number') return 'FLOAT';
@@ -182,16 +364,7 @@ function getVariableType(value: any): VariableResolvedDataType {
   return 'STRING';
 }
 
-function convertToFigmaValue(value: any, type: VariableResolvedDataType): VariableValue {
-  if (typeof value === 'string' && value.startsWith('{') && value.endsWith('}')) {
-    // Attempt alias resolution (by name)
-    const targetName = value.substring(1, value.length - 1);
-    const target = figma.variables.getLocalVariables().find(v => v.name === targetName);
-    if (target) {
-      return { type: 'VARIABLE_ALIAS', id: target.id };
-    }
-  }
-
+function convertToFigmaValue(value: any, type: VariableResolvedDataType, baseFontSize: number = 16): VariableValue {
   if (type === 'COLOR') {
     if (typeof value === 'string') {
       const str = value.trim();
@@ -219,6 +392,10 @@ function convertToFigmaValue(value: any, type: VariableResolvedDataType): Variab
           a: rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1
         };
       }
+      
+      // Parse HSL (naive fallback approximation, proper HSL to RGB is complex without a lib, 
+      // but let's assume standard hex/rgba is mostly used. If needed, a full hsl2rgb converter is required).
+      // For now, if it's HSL, we might fail unless parsed properly.
     }
 
     // If it's already an object (e.g. from UI)
@@ -227,10 +404,19 @@ function convertToFigmaValue(value: any, type: VariableResolvedDataType): Variab
     }
   }
 
-  if (type === 'FLOAT') return parseFloat(value) || 0;
+  if (type === 'FLOAT') {
+    if (typeof value === 'string') {
+      if (value.endsWith('rem')) {
+        return parseFloat(value) * baseFontSize;
+      }
+      return parseFloat(value) || 0;
+    }
+    return Number(value) || 0;
+  }
+  
   if (type === 'BOOLEAN') return value === 'true' || value === true;
 
-  return value;
+  return String(value);
 }
 
 // === Message handling ===
