@@ -6,6 +6,8 @@ import { useRef, useEffect } from "react";
 import { TokenPicker } from "./token-picker";
 import { ColorPicker } from "./color-picker";
 import type { PluginConfig } from "../../core/types";
+import { DraggableRow } from "./draggable-row";
+import { DroppableGroupHeader } from "./droppable-group-header";
 
 interface VariablesTableProps {
   variables: Variable[];
@@ -30,6 +32,8 @@ interface VariablesTableProps {
   onDuplicateVariables?: (ids: string[]) => void;
   onDeleteVariables?: (ids: string[]) => void;
   onNewGroupWithSelection?: (ids: string[], groupName: string) => void;
+  onMoveVariableToVariable?: (draggedId: string, targetId: string, position: 'before' | 'after') => void;
+  onMoveVariableToGroup?: (draggedId: string, groupPath: string) => void;
   onEditVariable?: () => void;
   onImportClick?: () => void;
   onExportClick?: () => void;
@@ -60,6 +64,8 @@ export function VariablesTable({
   onDuplicateVariables,
   onDeleteVariables,
   onNewGroupWithSelection,
+  onMoveVariableToVariable,
+  onMoveVariableToGroup,
   onEditVariable,
   onImportClick,
   onExportClick,
@@ -596,14 +602,19 @@ export function VariablesTable({
                 .map(([path, groupVars]) => (
                   <div key={path} className="flex flex-col">
                     {/* Group Path Header */}
-                    <div
-                      className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5]"
-                      style={{ top: 28 }} // Sticky below main headers
+                    <DroppableGroupHeader
+                      groupPath={path}
+                      acceptType="VARIABLE_ROW"
+                      onDropToGroup={(draggedId) => {
+                        onMoveVariableToGroup?.(draggedId, path);
+                      }}
+                      className="flex items-center px-4 py-2 border-b border-[#f0f0f0] bg-white sticky z-[5] cursor-pointer hover:bg-[#f5f5f5]"
+                      style={{ top: 28 }}
                     >
                       <span className="text-[10px] font-bold text-[#bbb] tracking-wider">
                         {path}
                       </span>
-                    </div>
+                    </DroppableGroupHeader>
 
                     {(() => {
                       const order = pluginConfig?.tokenOrder?.[path] || [];
@@ -621,9 +632,17 @@ export function VariablesTable({
                       return sortedVars.map((variable) => {
                         const isSelected = selectedIds.includes(variable.id);
                         return (
-                          <div
+                          <DraggableRow
                             key={variable.id}
-                            ref={(el) => { itemRefs.current[variable.id] = el; }}
+                            id={variable.id}
+                            type="VARIABLE_ROW"
+                            index={groupVars.findIndex(v => v.id === variable.id)}
+                            groupPath={path}
+                            isEditing={editingTokenNameId === variable.id}
+                            onMove={(draggedId, targetId, position) => {
+                              onMoveVariableToVariable?.(draggedId, targetId, position);
+                            }}
+                            innerRef={(el) => { itemRefs.current[variable.id] = el; }}
                             onClick={(e) => onSelect(variable.id, { shift: e.shiftKey, ctrl: e.metaKey || e.ctrlKey })}
                             className={`group/row flex cursor-pointer border-b border-[#f0f0f0] transition-colors ${isSelected
                               ? "bg-[#0d99ff] text-white"
@@ -787,7 +806,7 @@ export function VariablesTable({
                                 <SlidersHorizontal size={12} />
                               </button>
                             </div>
-                          </div>
+                          </DraggableRow>
                         );
                       });
                     })()}
@@ -799,158 +818,164 @@ export function VariablesTable({
       </div>
 
       {/* Mode Context Menu */}
-      {contextMenu && (
-        <>
-          <div className="fixed inset-0 z-[100]" onClick={() => setContextMenu(null)} />
-          <div
-            className="fixed z-[101] bg-white border border-[#e5e5e5] rounded-lg shadow-xl py-1 min-w-[160px] animate-in fade-in zoom-in duration-100"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-          >
-            <div className="px-3 py-1.5 text-[10px] font-bold text-[#999] uppercase tracking-wider border-b border-[#f5f5f5] mb-1">
-              Mode: {contextMenu.mode.name}
+      {
+        contextMenu && (
+          <>
+            <div className="fixed inset-0 z-[100]" onClick={() => setContextMenu(null)} />
+            <div
+              className="fixed z-[101] bg-white border border-[#e5e5e5] rounded-lg shadow-xl py-1 min-w-[160px] animate-in fade-in zoom-in duration-100"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+            >
+              <div className="px-3 py-1.5 text-[10px] font-bold text-[#999] uppercase tracking-wider border-b border-[#f5f5f5] mb-1">
+                Mode: {contextMenu.mode.name}
+              </div>
+              <button
+                onClick={() => handleMoveMode('left')}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
+              >
+                <ArrowLeft size={12} className="text-[#999]" />
+                Move Left
+              </button>
+              <button
+                onClick={() => handleMoveMode('right')}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
+              >
+                <ArrowRight size={12} className="text-[#999]" />
+                Move Right
+              </button>
+              <div className="h-[1px] bg-[#f5f5f5] my-1" />
+              <button
+                onClick={handleSetDefaultMode}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
+              >
+                <Star size={12} className="text-[#999]" />
+                Set as Default
+              </button>
+              <div className="h-[1px] bg-[#f5f5f5] my-1" />
+              <button
+                onClick={() => {
+                  if (onDeleteMode) onDeleteMode(contextMenu.mode.modeId);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#fff1f2] text-[11px] text-[#e11d48] transition-colors"
+              >
+                <Trash2 size={12} />
+                Delete Mode
+              </button>
             </div>
-            <button
-              onClick={() => handleMoveMode('left')}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
-            >
-              <ArrowLeft size={12} className="text-[#999]" />
-              Move Left
-            </button>
-            <button
-              onClick={() => handleMoveMode('right')}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
-            >
-              <ArrowRight size={12} className="text-[#999]" />
-              Move Right
-            </button>
-            <div className="h-[1px] bg-[#f5f5f5] my-1" />
-            <button
-              onClick={handleSetDefaultMode}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors"
-            >
-              <Star size={12} className="text-[#999]" />
-              Set as Default
-            </button>
-            <div className="h-[1px] bg-[#f5f5f5] my-1" />
-            <button
-              onClick={() => {
-                if (onDeleteMode) onDeleteMode(contextMenu.mode.modeId);
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#fff1f2] text-[11px] text-[#e11d48] transition-colors"
-            >
-              <Trash2 size={12} />
-              Delete Mode
-            </button>
-          </div>
-        </>
-      )}
+          </>
+        )
+      }
 
       {/* Token Context Menu */}
-      {tokenContextMenu && (
-        <>
-          <div className="fixed inset-0 z-[100]" onMouseDown={() => setTokenContextMenu(null)} />
-          <div
-            className="fixed z-[101] bg-white border border-[#e5e5e5] rounded-lg shadow-xl py-1 min-w-[180px] animate-in fade-in zoom-in duration-100"
-            style={{ left: tokenContextMenu.x, top: tokenContextMenu.y }}
-          >
-            <button
-              onClick={() => {
-                setCopiedIds(tokenContextMenu.variableIds);
-                setTokenContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+      {
+        tokenContextMenu && (
+          <>
+            <div className="fixed inset-0 z-[100]" onMouseDown={() => setTokenContextMenu(null)} />
+            <div
+              className="fixed z-[101] bg-white border border-[#e5e5e5] rounded-lg shadow-xl py-1 min-w-[180px] animate-in fade-in zoom-in duration-100"
+              style={{ left: tokenContextMenu.x, top: tokenContextMenu.y }}
             >
-              <Copy size={12} className="text-[#999]" />
-              Copy
-            </button>
-            <button
-              onClick={() => {
-                if (copiedIds.length > 0 && onDuplicateVariables) {
-                  onDuplicateVariables(copiedIds);
-                }
-                setTokenContextMenu(null);
-              }}
-              disabled={copiedIds.length === 0}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] transition-colors text-left ${copiedIds.length === 0 ? "text-[#ccc] cursor-not-allowed" : "text-[#333]"}`}
-            >
-              <Download size={12} className={copiedIds.length === 0 ? "text-[#eee]" : "text-[#999]"} />
-              Paste
-            </button>
+              <button
+                onClick={() => {
+                  setCopiedIds(tokenContextMenu.variableIds);
+                  setTokenContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+              >
+                <Copy size={12} className="text-[#999]" />
+                Copy
+              </button>
+              <button
+                onClick={() => {
+                  if (copiedIds.length > 0 && onDuplicateVariables) {
+                    onDuplicateVariables(copiedIds);
+                  }
+                  setTokenContextMenu(null);
+                }}
+                disabled={copiedIds.length === 0}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] transition-colors text-left ${copiedIds.length === 0 ? "text-[#ccc] cursor-not-allowed" : "text-[#333]"}`}
+              >
+                <Download size={12} className={copiedIds.length === 0 ? "text-[#eee]" : "text-[#999]"} />
+                Paste
+              </button>
 
-            <div className="h-[1px] bg-[#f5f5f5] my-1" />
+              <div className="h-[1px] bg-[#f5f5f5] my-1" />
 
-            <button
-              onClick={handleCreateGroup}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
-            >
-              <Grid size={12} className="text-[#999]" />
-              New group with selection
-            </button>
-            <button
-              onClick={() => {
-                if (onEditVariable) onEditVariable();
-                setTokenContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
-            >
-              <Code size={12} className="text-[#999]" />
-              Edit variable
-            </button>
-            <button
-              onClick={() => {
-                if (onDuplicateVariables) onDuplicateVariables(tokenContextMenu.variableIds);
-                setTokenContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
-            >
-              <Copy size={12} className="text-[#999]" />
-              Duplicate variable
-            </button>
+              <button
+                onClick={handleCreateGroup}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+              >
+                <Grid size={12} className="text-[#999]" />
+                New group with selection
+              </button>
+              <button
+                onClick={() => {
+                  if (onEditVariable) onEditVariable();
+                  setTokenContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+              >
+                <Code size={12} className="text-[#999]" />
+                Edit variable
+              </button>
+              <button
+                onClick={() => {
+                  if (onDuplicateVariables) onDuplicateVariables(tokenContextMenu.variableIds);
+                  setTokenContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f5f5f5] text-[11px] text-[#333] transition-colors text-left"
+              >
+                <Copy size={12} className="text-[#999]" />
+                Duplicate variable
+              </button>
 
-            <div className="h-[1px] bg-[#f5f5f5] my-1" />
+              <div className="h-[1px] bg-[#f5f5f5] my-1" />
 
-            <button
-              onClick={() => {
-                if (onDeleteVariables) onDeleteVariables(tokenContextMenu.variableIds);
-                setTokenContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#fff1f2] text-[11px] text-[#e11d48] transition-colors text-left"
-            >
-              <Trash2 size={12} />
-              Delete variable
-            </button>
-          </div>
-        </>
-      )}
+              <button
+                onClick={() => {
+                  if (onDeleteVariables) onDeleteVariables(tokenContextMenu.variableIds);
+                  setTokenContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#fff1f2] text-[11px] text-[#e11d48] transition-colors text-left"
+              >
+                <Trash2 size={12} />
+                Delete variable
+              </button>
+            </div>
+          </>
+        )
+      }
 
       {/* Navigation Return Banner */}
-      {navigationReturn && (
-        <div className="mx-2 mb-2 bg-[#f0f9ff] border border-[#0d99ff]/20 rounded-md py-2 px-3 flex items-center justify-between shadow-sm animate-in slide-in-from-bottom-1 duration-200">
-          <div className="flex items-center gap-2">
-            <div className="bg-[#0d99ff]/10 p-1 rounded">
-              <Target size={12} className="text-[#0d99ff]" />
+      {
+        navigationReturn && (
+          <div className="mx-2 mb-2 bg-[#f0f9ff] border border-[#0d99ff]/20 rounded-md py-2 px-3 flex items-center justify-between shadow-sm animate-in slide-in-from-bottom-1 duration-200">
+            <div className="flex items-center gap-2">
+              <div className="bg-[#0d99ff]/10 p-1 rounded">
+                <Target size={12} className="text-[#0d99ff]" />
+              </div>
+              <span className="text-[11px] text-[#333]">
+                Navigated to <span className="font-semibold">{variables.find(v => v.id === selectedId)?.name}</span>
+              </span>
             </div>
-            <span className="text-[11px] text-[#333]">
-              Navigated to <span className="font-semibold">{variables.find(v => v.id === selectedId)?.name}</span>
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onNavigateToTarget?.(navigationReturn.id, '')}
+                className="text-[11px] bg-[#0d99ff] text-white px-2.5 py-1 rounded hover:bg-[#0b7fd4] transition-colors cursor-pointer font-medium"
+              >
+                Return to "{navigationReturn.name}"
+              </button>
+              <button
+                onClick={onClearNavigationReturn}
+                className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onNavigateToTarget?.(navigationReturn.id, '')}
-              className="text-[11px] bg-[#0d99ff] text-white px-2.5 py-1 rounded hover:bg-[#0b7fd4] transition-colors cursor-pointer font-medium"
-            >
-              Return to "{navigationReturn.name}"
-            </button>
-            <button
-              onClick={onClearNavigationReturn}
-              className="text-[#999] hover:text-[#333] p-1 cursor-pointer"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Bottom action bar */}
       <div className="flex items-center gap-3 px-3 border-t border-[#e5e5e5] shrink-0 relative" style={{ height: 44 }}>
@@ -1075,93 +1100,95 @@ export function VariablesTable({
       </div>
 
       {/* Mode Context Menu */}
-      {contextMenu && (
-        <>
-          <div className="fixed inset-0 z-[100]" onClick={() => setContextMenu(null)} />
-          <div
-            className="fixed z-[101] bg-white border border-[#e5e5e5] rounded shadow-lg py-1 min-w-[160px]"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-          >
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
-              onClick={() => {
-                onDuplicateMode?.(contextMenu.mode.modeId);
-                setContextMenu(null);
-              }}
+      {
+        contextMenu && (
+          <>
+            <div className="fixed inset-0 z-[100]" onClick={() => setContextMenu(null)} />
+            <div
+              className="fixed z-[101] bg-white border border-[#e5e5e5] rounded shadow-lg py-1 min-w-[160px]"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
             >
-              <Copy size={12} className="text-[#999]" />
-              Duplicate mode
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
-              onClick={handleSetDefaultMode}
-            >
-              <Star size={12} className="text-[#999]" />
-              Set as default
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
-              onClick={() => handleMoveMode('left')}
-            >
-              <ArrowLeft size={12} className="text-[#999]" />
-              Move left
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
-              onClick={() => handleMoveMode('right')}
-            >
-              <ArrowRight size={12} className="text-[#999]" />
-              Move right
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
-              onClick={() => {
-                handleModeHeaderClick(contextMenu.mode);
-                setContextMenu(null);
-              }}
-            >
-              <Type size={12} className="text-[#999]" />
-              Rename mode
-            </button>
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                onClick={() => {
+                  onDuplicateMode?.(contextMenu.mode.modeId);
+                  setContextMenu(null);
+                }}
+              >
+                <Copy size={12} className="text-[#999]" />
+                Duplicate mode
+              </button>
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                onClick={handleSetDefaultMode}
+              >
+                <Star size={12} className="text-[#999]" />
+                Set as default
+              </button>
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                onClick={() => handleMoveMode('left')}
+              >
+                <ArrowLeft size={12} className="text-[#999]" />
+                Move left
+              </button>
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                onClick={() => handleMoveMode('right')}
+              >
+                <ArrowRight size={12} className="text-[#999]" />
+                Move right
+              </button>
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                onClick={() => {
+                  handleModeHeaderClick(contextMenu.mode);
+                  setContextMenu(null);
+                }}
+              >
+                <Type size={12} className="text-[#999]" />
+                Rename mode
+              </button>
 
-            <div className="h-[1px] bg-[#e5e5e5] my-1" />
+              <div className="h-[1px] bg-[#e5e5e5] my-1" />
 
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
-              onClick={() => {
-                onImportClick?.();
-                setContextMenu(null);
-              }}
-            >
-              <Download size={12} className="text-[#999]" />
-              Import mode
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
-              onClick={() => {
-                onExportClick?.();
-                setContextMenu(null);
-              }}
-            >
-              <Upload size={12} className="text-[#999]" />
-              Export mode
-            </button>
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                onClick={() => {
+                  onImportClick?.();
+                  setContextMenu(null);
+                }}
+              >
+                <Download size={12} className="text-[#999]" />
+                Import mode
+              </button>
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-[#333] hover:bg-[#f5f5f5]"
+                onClick={() => {
+                  onExportClick?.();
+                  setContextMenu(null);
+                }}
+              >
+                <Upload size={12} className="text-[#999]" />
+                Export mode
+              </button>
 
-            <div className="h-[1px] bg-[#e5e5e5] my-1" />
+              <div className="h-[1px] bg-[#e5e5e5] my-1" />
 
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-red-500 hover:bg-red-50"
-              onClick={() => {
-                onDeleteMode?.(contextMenu.mode.modeId);
-                setContextMenu(null);
-              }}
-            >
-              <Trash2 size={12} />
-              Delete mode
-            </button>
-          </div>
-        </>
-      )}
+              <button
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-[11px] text-red-500 hover:bg-red-50"
+                onClick={() => {
+                  onDeleteMode?.(contextMenu.mode.modeId);
+                  setContextMenu(null);
+                }}
+              >
+                <Trash2 size={12} />
+                Delete mode
+              </button>
+            </div>
+          </>
+        )
+      }
 
       {/* Token Picker Popover */}
       <TokenPicker
@@ -1210,6 +1237,6 @@ export function VariablesTable({
         }))}
         collections={Array.from(new Set(allVariables.map(v => v.libraryName || "Local"))).map(lib => ({ id: lib, name: lib }))}
       />
-    </div>
+    </div >
   );
 }

@@ -99,7 +99,11 @@ export const SidebarDnDItem: React.FC<SidebarDnDItemProps> = ({
 
   const setNodeRef = (node: HTMLDivElement | null) => {
     ref.current = node;
-    drag(node);
+    if (draggable) {
+      drag(node);
+    } else {
+      drag(null);
+    }
     drop(node);
   };
 

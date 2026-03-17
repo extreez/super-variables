@@ -499,11 +499,35 @@ export default function App() {
   const handleMoveVariableToGroup = (variableId: string, groupPath: string) => {
     const variable = allVariables.find(v => v.id === variableId);
     if (!variable) return;
-    const parts = variable.name.split('/');
-    const leafName = parts.pop();
-    const newName = groupPath === 'Root' ? leafName : `${groupPath}/${leafName}`;
-    if (variable.name !== newName) {
-      parent.postMessage({ pluginMessage: { type: 'update-variable-name', variableId, newName } }, '*');
+
+    // Находим target variable в той же группе для определения позиции
+    const groupVariables = allVariables.filter(v => {
+      const vParts = v.path.split('/');
+      vParts.pop();
+      const vGroup = vParts.join('/') || 'Root';
+      return vGroup === groupPath;
+    });
+
+    const targetId = groupVariables.length > 0 ? groupVariables[groupVariables.length - 1].id : null;
+
+    if (targetId) {
+      // Перемещаем после последнего токена в группе
+      parent.postMessage({
+        pluginMessage: {
+          type: 'move-variable',
+          variableId,
+          targetVariableId: targetId,
+          position: 'after'
+        }
+      }, '*');
+    } else {
+      // Если в группе нет токенов, просто обновляем имя
+      const parts = variable.name.split('/');
+      const leafName = parts.pop();
+      const newName = groupPath === 'Root' ? leafName : `${groupPath}/${leafName}`;
+      if (variable.name !== newName) {
+        parent.postMessage({ pluginMessage: { type: 'update-variable-name', variableId, newName } }, '*');
+      }
     }
   };
 

@@ -192,8 +192,8 @@ export function Sidebar({
                 onClick={() => onSelectCollection(col.name)}
                 title={col.name}
                 className={`flex items-center justify-center rounded cursor-pointer transition-colors my-[1px] ${isSelected
-                    ? "bg-[#0d99ff]/10 text-[#0d99ff]"
-                    : "text-[#666] hover:bg-[#f0f0f0]"
+                  ? "bg-[#0d99ff]/10 text-[#0d99ff]"
+                  : "text-[#666] hover:bg-[#f0f0f0]"
                   }`}
                 style={{ width: SQUARE_BTN, height: SQUARE_BTN }}
               >
@@ -221,8 +221,8 @@ export function Sidebar({
                 onClick={() => onSelectGroup(grp.fullName)}
                 title={grp.name}
                 className={`flex items-center justify-center rounded cursor-pointer transition-colors my-[1px] ${isSelected
-                    ? "bg-[#0d99ff]/10 text-[#0d99ff]"
-                    : "text-[#666] hover:bg-[#f0f0f0]"
+                  ? "bg-[#0d99ff]/10 text-[#0d99ff]"
+                  : "text-[#666] hover:bg-[#f0f0f0]"
                   }`}
                 style={{ width: SQUARE_BTN, height: SQUARE_BTN }}
               >
@@ -331,6 +331,8 @@ export function Sidebar({
           <div className="flex flex-col">
             {collections.map((col) => {
               const isSelected = selectedCollection === col.name;
+              const isCollectionEditing = editingCollectionId === (col.id || col.name);
+
               return (
                 <SidebarDnDItem
                   key={col.id || col.name}
@@ -338,6 +340,7 @@ export function Sidebar({
                   type="SIDEBAR_COLLECTION"
                   accept={['SIDEBAR_COLLECTION', 'SIDEBAR_GROUP']}
                   data={{ id: col.id || col.name, type: 'collection' }}
+                  draggable={!isCollectionEditing}
                   onDropItem={(data, position) => {
                     if (data.type === 'group') {
                       onMoveGroup?.(data.sources, col.id || col.name, '');
@@ -366,8 +369,8 @@ export function Sidebar({
                       onDoubleClick={(e) => { e.stopPropagation(); handleStartCollectionRename(col); }}
                       onContextMenu={(e) => handleCollectionContextMenu(e, col)}
                       className={`flex items-center gap-2 px-3 py-[5px] cursor-pointer transition-colors group/col relative outline-none ${isSelected
-                          ? "bg-[#0d99ff]/10 text-[#0d99ff]"
-                          : "text-[#333] hover:bg-[#f5f5f5]"
+                        ? "bg-[#0d99ff]/10 text-[#0d99ff]"
+                        : "text-[#333] hover:bg-[#f5f5f5]"
                         } ${isOver && position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''} ${isDragging ? 'opacity-50' : ''}`}
                     >
                       {isOver && position === 'top' && (
@@ -381,29 +384,29 @@ export function Sidebar({
                         defaultLetter={col.name[0]}
                         onSelect={(emoji) => onSetCollectionEmoji(col.name, emoji)}
                       />
-                  {editingCollectionId === (col.id || col.name) ? (
-                    <input
-                      type="text"
-                      autoFocus
-                      value={tempCollectionName}
-                      onChange={(e) => setTempCollectionName(e.target.value)}
-                      onBlur={() => handleCollectionRenameBlur(col)}
-                      onKeyDown={(e) => handleRenameKeyDown(e, 'collection', col)}
-                      className="text-[11px] bg-white border border-[#0d99ff] outline-none px-1 py-0.5 rounded flex-1 min-w-0"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : (
-                    <span className="text-[11px] flex-1 truncate">{col.name}</span>
+                      {editingCollectionId === (col.id || col.name) ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={tempCollectionName}
+                          onChange={(e) => setTempCollectionName(e.target.value)}
+                          onBlur={() => handleCollectionRenameBlur(col)}
+                          onKeyDown={(e) => handleRenameKeyDown(e, 'collection', col)}
+                          className="text-[11px] bg-white border border-[#0d99ff] outline-none px-1 py-0.5 rounded flex-1 min-w-0"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span className="text-[11px] flex-1 truncate">{col.name}</span>
+                      )}
+                      <span
+                        className={`text-[11px] ${isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
+                          }`}
+                      >
+                        {col.count}
+                      </span>
+                    </div>
                   )}
-                  <span
-                    className={`text-[11px] ${isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
-                      }`}
-                  >
-                    {col.count}
-                  </span>
-                </div>
-              )}
-              </SidebarDnDItem>
+                </SidebarDnDItem>
               );
             })}
           </div>
@@ -473,13 +476,15 @@ export function Sidebar({
                 if (grp.fullName !== 'All') return null;
               }
 
+              const isGroupEditing = editingGroupFullName === grp.fullName;
+
               return (
                 <SidebarDnDItem
                   key={grp.fullName}
                   id={grp.fullName}
                   type="SIDEBAR_GROUP"
                   accept={['SIDEBAR_GROUP']}
-                  draggable={grp.fullName !== 'All'}
+                  draggable={grp.fullName !== 'All' && !isGroupEditing}
                   data={{ sources: selectedGroups.includes(grp.fullName) ? selectedGroups : [grp.fullName], type: 'group' }}
                   onDropItem={(data, position) => {
                     if (data.type === 'group') {
@@ -496,22 +501,22 @@ export function Sidebar({
                       } else if (position) {
                         // Reordering / placing adjacent
                         let targetParentPath = targetId === 'All' ? '' : targetId.split('/').slice(0, -1).join('/');
-                        
+
                         // We must ensure we don't accidentally move a parent into its own child.
                         const isChildOfSource = data.sources.some((s: string) => targetParentPath === s || targetParentPath.startsWith(s + '/'));
 
                         if (!isChildOfSource) {
                           const filteredSources = data.sources.filter((s: string) => s !== targetParentPath);
                           if (filteredSources.length > 0) {
-                             onMoveGroup?.(filteredSources, colId, targetParentPath);
+                            onMoveGroup?.(filteredSources, colId, targetParentPath);
                           }
                         }
-                        
+
                         // Reordering logic
                         const currentOrder = customGroupOrder[colId] || groups.map(g => g.fullName);
-                        
+
                         // Find all sources AND their descendants in the exact order they currently appear
-                        const sourcesWithDescendants = currentOrder.filter(id => 
+                        const sourcesWithDescendants = currentOrder.filter(id =>
                           data.sources.some((s: string) => id === s || id.startsWith(s + '/'))
                         );
 
@@ -522,13 +527,13 @@ export function Sidebar({
                         const renamedSourcesWithDescendants = sourcesWithDescendants.map(id => {
                           const source = data.sources.find((s: string) => id === s || id.startsWith(s + '/'));
                           if (!source) return id;
-                          
+
                           const sourceParentPath = source.split('/').slice(0, -1).join('/');
                           if (sourceParentPath === targetParentPath) return id; // No parent change
-                          
+
                           const sourceName = source.split('/').pop() || source;
                           const relativePath = id.substring(source.length);
-                          return targetParentPath 
+                          return targetParentPath
                             ? `${targetParentPath}/${sourceName}${relativePath}`
                             : `${sourceName}${relativePath}`;
                         });
@@ -545,7 +550,7 @@ export function Sidebar({
                           const targetSubtree = currentOrder.filter(id => id === targetId || id.startsWith(targetId + '/'));
                           const targetSubtreeInNewOrder = newOrder.filter(id => targetSubtree.includes(id));
                           const lastTargetId = targetSubtreeInNewOrder[targetSubtreeInNewOrder.length - 1] || targetId;
-                          
+
                           const targetIdx = newOrder.indexOf(lastTargetId);
                           if (targetIdx !== -1) {
                             newOrder.splice(targetIdx + 1, 0, ...renamedSourcesWithDescendants);
@@ -570,8 +575,8 @@ export function Sidebar({
                       }}
                       onContextMenu={(e) => handleGroupContextMenu(e, grp)}
                       className={`flex items-center gap-1.5 py-[5px] cursor-pointer transition-colors group/row select-none relative outline-none ${isSelected
-                          ? "bg-[#0d99ff]/10 text-[#0d99ff]"
-                          : "text-[#333] hover:bg-[#f5f5f5]"
+                        ? "bg-[#0d99ff]/10 text-[#0d99ff]"
+                        : "text-[#333] hover:bg-[#f5f5f5]"
                         } ${isOver && position === 'middle' ? 'ring-1 ring-inset ring-[#0d99ff]' : ''} ${isDragging ? 'opacity-50' : ''}`}
                       style={{ paddingLeft: (grp.level * 12) + 12, paddingRight: 12 }}
                     >
@@ -581,44 +586,44 @@ export function Sidebar({
                       {isOver && position === 'bottom' && (
                         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0d99ff] z-10" />
                       )}
-                  <div className="w-4 h-4 flex items-center justify-center shrink-0">
-                    {grp.isFolder && (
-                      <button
-                        onClick={(e) => toggleFolder(grp.fullName, e)}
-                        className="text-[#999] hover:text-[#333]"
+                      <div className="w-4 h-4 flex items-center justify-center shrink-0">
+                        {grp.isFolder && (
+                          <button
+                            onClick={(e) => toggleFolder(grp.fullName, e)}
+                            className="text-[#999] hover:text-[#333]"
+                          >
+                            {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                          </button>
+                        )}
+                      </div>
+                      <div className="shrink-0">
+                        <EmojiPicker
+                          currentEmoji={groupEmojis[grp.fullName] || null}
+                          defaultLetter={grp.isFolder ? undefined : grp.name[0]}
+                          onSelect={(emoji) => onSetGroupEmoji(grp.fullName, emoji)}
+                          customIcon={grp.isFolder ? (isExpanded ? <FolderOpen size={12} className="text-[#999]" /> : <Folder size={12} className="text-[#999]" />) : undefined}
+                        />
+                      </div>
+                      {editingGroupFullName === grp.fullName ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={tempGroupName}
+                          onChange={(e) => setTempGroupName(e.target.value)}
+                          onBlur={() => handleGroupRenameBlur(grp)}
+                          onKeyDown={(e) => handleRenameKeyDown(e, 'group', grp)}
+                          className="text-[11px] bg-white border border-[#0d99ff] outline-none px-1 py-0.5 rounded flex-1 min-w-0"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span className="text-[11px] flex-1 truncate">{grp.name}</span>
+                      )}
+                      <span
+                        className={`text-[10px] ${isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
+                          }`}
                       >
-                        {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                      </button>
-                    )}
-                  </div>
-                  <div className="shrink-0">
-                    <EmojiPicker
-                      currentEmoji={groupEmojis[grp.fullName] || null}
-                      defaultLetter={grp.isFolder ? undefined : grp.name[0]}
-                      onSelect={(emoji) => onSetGroupEmoji(grp.fullName, emoji)}
-                      customIcon={grp.isFolder ? (isExpanded ? <FolderOpen size={12} className="text-[#999]" /> : <Folder size={12} className="text-[#999]" />) : undefined}
-                    />
-                  </div>
-                  {editingGroupFullName === grp.fullName ? (
-                    <input
-                      type="text"
-                      autoFocus
-                      value={tempGroupName}
-                      onChange={(e) => setTempGroupName(e.target.value)}
-                      onBlur={() => handleGroupRenameBlur(grp)}
-                      onKeyDown={(e) => handleRenameKeyDown(e, 'group', grp)}
-                      className="text-[11px] bg-white border border-[#0d99ff] outline-none px-1 py-0.5 rounded flex-1 min-w-0"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : (
-                    <span className="text-[11px] flex-1 truncate">{grp.name}</span>
-                  )}
-                  <span
-                    className={`text-[10px] ${isSelected ? "text-[#0d99ff]/70" : "text-[#999]"
-                      }`}
-                  >
-                    {grp.count}
-                  </span>
+                        {grp.count}
+                      </span>
                     </div>
                   )}
                 </SidebarDnDItem>
