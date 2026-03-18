@@ -34,7 +34,14 @@ function generateFlatJSON(
     colTokens.forEach(t => {
       const val = t.valuesByMode[firstModeId];
       if (val) {
-        result[t.name] = formatValue(val, settings, tokens, '', firstModeId);
+        if (settings.includeCustomIds && t.customId) {
+          result[t.name] = {
+            value: formatValue(val, settings, tokens, '', firstModeId),
+            customId: t.customId
+          };
+        } else {
+          result[t.name] = formatValue(val, settings, tokens, '', firstModeId);
+        }
       }
     });
   });
@@ -68,7 +75,8 @@ function generateStyleDictionary(
             value: formatValue(val, settings, tokens, '', firstModeId),
             type: t.resolvedType.toLowerCase(),
             comment: t.description,
-            ...(settings.includeIds && { id: t.id })
+            ...(settings.includeIds && { id: t.id }),
+            ...(settings.includeCustomIds && t.customId && { customId: t.customId })
           };
         } else {
           current[p] = current[p] || {};
@@ -108,7 +116,8 @@ function generateDTCG(
             $value: formatValue(val, settings, tokens, '', firstModeId),
             $type: t.resolvedType.toLowerCase(),
             $description: t.description,
-            ...(settings.includeIds && { $id: t.id })
+            ...(settings.includeIds && { $id: t.id }),
+            ...(settings.includeCustomIds && t.customId && { $customId: t.customId })
           };
         } else {
           current[p] = current[p] || {};

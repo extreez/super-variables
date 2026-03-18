@@ -36,10 +36,9 @@ export function ExportModal({ isOpen, onClose, collections, tokens, language = '
   const [modeStrategy, setModeStrategy] = useState<ModeStrategy>("root-comments");
   const [groupDivider, setGroupDivider] = useState("--");
   const [includeIds, setIncludeIds] = useState(false);
+  const [includeCustomIds, setIncludeCustomIds] = useState(false);
   const [includeScopes, setIncludeScopes] = useState(false);
-  const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(
-    new Set(collections.map((c) => c.id))
-  );
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<string>>(new Set());
   const [selectedModeIds, setSelectedModeIds] = useState<Record<string, string[]>>({});
   const [selectorTemplate, setSelectorTemplate] = useState(".{modeName}");
   
@@ -48,12 +47,20 @@ export function ExportModal({ isOpen, onClose, collections, tokens, language = '
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
 
   useEffect(() => {
-    // Default mode selection: all modes for each collection
-    const defaultModes: Record<string, string[]> = {};
-    collections.forEach(col => {
-      defaultModes[col.id] = col.modes.map(m => m.modeId);
-    });
-    setSelectedModeIds(defaultModes);
+    // Update selected collections and modes when collections prop changes
+    if (collections.length > 0) {
+      // Initialize selection if it's empty
+      if (selectedCollectionIds.size === 0) {
+        setSelectedCollectionIds(new Set(collections.map(c => c.id)));
+      }
+
+      // Default mode selection: all modes for each collection
+      const defaultModes: Record<string, string[]> = {};
+      collections.forEach(col => {
+        defaultModes[col.id] = col.modes.map(m => m.modeId);
+      });
+      setSelectedModeIds(defaultModes);
+    }
   }, [collections]);
 
   // Adjust format based on platform
@@ -84,6 +91,7 @@ export function ExportModal({ isOpen, onClose, collections, tokens, language = '
       modeStrategy,
       groupDivider,
       includeIds,
+      includeCustomIds,
       includeScopes,
       selectedCollectionIds: Array.from(selectedCollectionIds),
       selectedModeIds,
@@ -380,6 +388,15 @@ export function ExportModal({ isOpen, onClose, collections, tokens, language = '
                     className="w-3.5 h-3.5 rounded border-[#ccc] text-[#0d99ff]"
                   />
                   <span className="text-[11px] text-[#333]">Include Figma IDs in metadata</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeCustomIds}
+                    onChange={(e) => setIncludeCustomIds(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-[#ccc] text-[#0d99ff]"
+                  />
+                  <span className="text-[11px] text-[#333]">Include Custom IDs for snapping</span>
                 </label>
               </section>
             </div>

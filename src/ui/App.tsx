@@ -938,6 +938,7 @@ export default function App() {
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImport}
+        collections={realCollections}
         language={language}
       />
       <GitSyncModal

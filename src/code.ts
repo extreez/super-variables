@@ -74,6 +74,7 @@ async function readVariables(): Promise<VariablesPayload> {
 
     return {
       id: v.id,
+      customId: v.getPluginData('customId') || undefined,
       name: v.name,
       resolvedType: v.resolvedType,
       valuesByMode,
@@ -174,28 +175,44 @@ async function importVariables(payload: import('./core/types').ImportPayload) {
 
     // Helper to get or create collection
     const getOrCreateCollection = (name: string) => {
-      let col = figmaCollections.find(c => c.name === name);
+      const normalizedName = name.trim();
+      let col = figmaCollections.find(c => c.name.toLowerCase() === normalizedName.toLowerCase());
       if (!col) {
-        col = figma.variables.createVariableCollection(name);
-        figmaCollections.push(col);
+        try {
+          col = figma.variables.createVariableCollection(normalizedName);
+          figmaCollections.push(col);
+        } catch (e) {
+          console.error(`Failed to create collection ${normalizedName}`, e);
+          // Fallback to existing or first if creation fails
+          col = figmaCollections[0];
+        }
       }
       return col;
     };
 
     // Helper to get or create mode
     const getOrCreateMode = (collection: VariableCollection, modeName: string) => {
-      let mode = collection.modes.find(m => m.name === modeName || m.name.toLowerCase() === modeName.toLowerCase());
+      const normalizedModeName = modeName.trim();
+      let mode = collection.modes.find(m => m.name.toLowerCase() === normalizedModeName.toLowerCase());
+      
       if (!mode) {
-        // If collection only has "Mode 1", rename it instead of creating if it's the first import
-        if (collection.modes.length === 1 && collection.modes[0].name === 'Mode 1') {
-          collection.renameMode(collection.modes[0].modeId, modeName);
-          mode = collection.modes[0];
+        // If collection only has "Mode 1" (or similar default), rename it
+        const isInitialDefault = collection.modes.length === 1 && 
+          (collection.modes[0].name.toLowerCase().startsWith('mode ') || collection.modes[0].name === 'Value');
+        
+        if (isInitialDefault) {
+          try {
+            collection.renameMode(collection.modes[0].modeId, normalizedModeName);
+            mode = collection.modes[0];
+          } catch (e) {
+            console.error(`Failed to rename mode to ${normalizedModeName}`, e);
+          }
         } else {
           try {
-            const newModeId = collection.addMode(modeName);
+            const newModeId = collection.addMode(normalizedModeName);
             mode = collection.modes.find(m => m.modeId === newModeId);
           } catch (e) {
-            console.error(`Failed to add mode ${modeName}`, e);
+            log.errors.push(`Mode limit reached for "${collection.name}". Could not add "${normalizedModeName}".`);
           }
         }
       }
@@ -204,10 +221,34 @@ async function importVariables(payload: import('./core/types').ImportPayload) {
 
     // 2. Process Tokens
     if (tokens && tokens.length > 0) {
-      // Group tokens by Collection + Name to avoid duplicate creation
+      // 2a. Pre-create all required collections and modes
+      const structureMap = new Map<string, Set<string>>();
+      for (const t of tokens) {
+        // STRICT OVERRIDE if strategy is manual
+        const colName = (settings.strategy === 'manual' && settings.targetCollectionId) 
+          ? settings.targetCollectionId 
+          : (t.collection || 'Imported');
+        
+        const modeName = (settings.strategy === 'manual' && settings.targetModeId)
+          ? settings.targetModeId
+          : (t.mode || 'default');
+
+        if (!structureMap.has(colName)) structureMap.set(colName, new Set());
+        structureMap.get(colName)!.add(modeName);
+      }
+
+      for (const [colName, modes] of structureMap.entries()) {
+        const col = getOrCreateCollection(colName);
+        for (const modeName of modes) {
+          getOrCreateMode(col, modeName);
+        }
+      }
+
+      // 2b. Group tokens by Collection + Name to avoid duplicate creation
       const tokenGroups: Record<string, {
         name: string,
         collection: string,
+        customId?: string, // Store customId
         type: VariableResolvedDataType,
         isAlias: boolean,
         values: Record<string, any>, // modeName -> value
@@ -215,27 +256,35 @@ async function importVariables(payload: import('./core/types').ImportPayload) {
       }> = {};
 
       for (const t of tokens) {
-        const colName = t.collection || settings.targetCollectionId || 'Imported';
+        const colName = (settings.strategy === 'manual' && settings.targetCollectionId)
+          ? settings.targetCollectionId
+          : (t.collection || 'Imported');
+          
         const key = `${colName}||${t.name}`;
         
         if (!tokenGroups[key]) {
           tokenGroups[key] = {
             name: t.name,
             collection: colName,
-            type: 'STRING', // Default, will refine below
+            customId: t.customId, // Record customId from first encounter
+            type: 'STRING', // Default
             isAlias: false,
             values: {},
             aliasModes: new Set()
           };
         }
         
-        tokenGroups[key].values[t.mode || settings.targetModeId || 'default'] = t.value;
+        const modeName = (settings.strategy === 'manual' && settings.targetModeId)
+          ? settings.targetModeId
+          : (t.mode || 'default');
+          
+        tokenGroups[key].values[modeName] = t.value;
         
         if (t.isAlias) {
           tokenGroups[key].isAlias = true;
-          tokenGroups[key].aliasModes.add(t.mode || settings.targetModeId || 'default');
+          tokenGroups[key].aliasModes.add(modeName);
         } else {
-          // If we have at least one concrete value, use its type
+          // Update type if we have a concrete value
           tokenGroups[key].type = getVariableType(t.value);
         }
       }
@@ -253,14 +302,29 @@ async function importVariables(payload: import('./core/types').ImportPayload) {
           if (target) group.type = target.resolvedType;
         }
 
-        let variable = figmaVariables.find(v => v.name === group.name && v.variableCollectionId === collection.id);
+        // --- Custom ID Lookup ---
+        let variable: Variable | undefined = undefined;
+        if (settings.useCustomIds && group.customId) {
+          variable = figmaVariables.find(v => v.getPluginData('customId') === group.customId);
+        }
+        
+        // Fallback to name lookup
+        if (!variable) {
+          variable = figmaVariables.find(v => v.name === group.name && v.variableCollectionId === collection.id);
+        }
 
         if (variable) {
+          // Update name if it changed but we found it via customId
+          if (settings.useCustomIds && group.customId && variable.name !== group.name) {
+            variable.name = group.name;
+          }
+
           if (variable.resolvedType !== group.type) {
             try {
               variable.remove();
               figmaVariables = figmaVariables.filter(v => v.id !== variable!.id);
               variable = figma.variables.createVariable(group.name, collection, group.type);
+              if (group.customId) variable.setPluginData('customId', group.customId);
               figmaVariables.push(variable);
               log.updated.push(`${group.name} (Recreated)`);
             } catch (e) {
@@ -272,6 +336,7 @@ async function importVariables(payload: import('./core/types').ImportPayload) {
           }
         } else {
           variable = figma.variables.createVariable(group.name, collection, group.type);
+          if (group.customId) variable.setPluginData('customId', group.customId);
           figmaVariables.push(variable);
           log.added.push(group.name);
         }

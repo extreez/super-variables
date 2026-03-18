@@ -53,7 +53,12 @@ function generateCSS(
           const val = t.valuesByMode[modeId];
           if (val) {
             const varName = formatName(t.name, settings.groupDivider, '--');
-            content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};\n`;
+            let metadata = [];
+            if (settings.includeIds) metadata.push(`id: ${t.id}`);
+            if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+            
+            const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
+            content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};${comment}\n`;
           }
         });
         content += '\n';
@@ -79,7 +84,12 @@ function generateCSS(
           const val = t.valuesByMode[modeId];
           if (val) {
             const varName = formatName(t.name, settings.groupDivider, '--');
-            content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};\n`;
+            let metadata = [];
+            if (settings.includeIds) metadata.push(`id: ${t.id}`);
+            if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+            
+            const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
+            content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};${comment}\n`;
           }
         });
         content += '}\n\n';
@@ -111,7 +121,12 @@ function generateCSSSeparateFiles(
         const val = t.valuesByMode[modeId];
         if (val) {
           const varName = formatName(t.name, settings.groupDivider, '--');
-          content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};\n`;
+          let metadata = [];
+          if (settings.includeIds) metadata.push(`id: ${t.id}`);
+          if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+          
+          const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
+          content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};${comment}\n`;
         }
       });
       content += '}\n';
@@ -148,7 +163,12 @@ function generatePreprocessors(
       const val = t.valuesByMode[firstModeId];
       if (val) {
         const varName = formatName(t.name, settings.groupDivider, prefix);
-        content += `${varName}: ${formatValue(val, settings, tokens, prefix, firstModeId)};\n`;
+        let metadata = [];
+        if (settings.includeIds) metadata.push(`id: ${t.id}`);
+        if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+        
+        const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
+        content += `${varName}: ${formatValue(val, settings, tokens, prefix, firstModeId)};${comment}\n`;
       }
     });
     content += '\n';

@@ -30,6 +30,7 @@ export function ImportModal({ isOpen, onClose, onImport, collections = [], langu
   // Settings state
   const [strategy, setStrategy] = useState<"auto" | "manual">("auto");
   const [importMode, setImportMode] = useState<"create" | "update">("update");
+  const [useCustomIds, setUseCustomIds] = useState(false);
   const [groupDivider, setGroupDivider] = useState("--");
   const [baseFontSize, setBaseFontSize] = useState(16);
   const [targetCollectionId, setTargetCollectionId] = useState("");
@@ -72,6 +73,7 @@ export function ImportModal({ isOpen, onClose, onImport, collections = [], langu
       const settings: ImportSettings = {
         strategy,
         importMode,
+        useCustomIds,
         format,
         groupDivider,
         baseFontSize,
@@ -261,35 +263,81 @@ export function ImportModal({ isOpen, onClose, onImport, collections = [], langu
                       </div>
                     </div>
 
+                    <div className="flex items-center gap-2 pt-1">
+                        <input 
+                          type="checkbox" 
+                          id="useCustomIds" 
+                          checked={useCustomIds} 
+                          onChange={(e) => { setUseCustomIds(e.target.checked); handleParse(); }}
+                          className="w-3.5 h-3.5 border-[#d0e6ff] rounded text-[#0d99ff] focus:ring-[#0d99ff] cursor-pointer"
+                        />
+                        <label htmlFor="useCustomIds" className="text-[11px] text-[#444] font-medium cursor-pointer select-none flex items-center gap-1.5">
+                          Snap by Custom ID
+                          <span className="text-[9px] text-[#999] font-normal">(Updates variable even if name changed)</span>
+                        </label>
+                    </div>
+
                     {strategy === 'manual' && (
-                      <div className="grid grid-cols-2 gap-4 pt-2">
+                      <div className="grid grid-cols-2 gap-4 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
                          <div>
                             <label className="text-[10px] text-[#666] mb-1 block">{t.import.targetCollection}</label>
-                            <select 
-                              value={targetCollectionId}
-                              onChange={(e) => { setTargetCollectionId(e.target.value); handleParse(); }}
-                              className="w-full px-2 py-1.5 text-[11px] border border-[#d0e6ff] rounded outline-none"
-                            >
-                              <option value="">-- Type name or select --</option>
-                              {collections.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                            </select>
-                            <input 
-                               type="text" 
-                               placeholder="Or type new name..." 
-                               value={targetCollectionId}
-                               onChange={(e) => { setTargetCollectionId(e.target.value); handleParse(); }}
-                               className="w-full mt-1 px-2 py-1 text-[10px] border border-[#e5e5e5] rounded"
-                            />
+                            <div className="space-y-1">
+                              <select 
+                                value={collections.some(c => c.name === targetCollectionId) ? targetCollectionId : ""}
+                                onChange={(e) => { 
+                                  const val = e.target.value;
+                                  setTargetCollectionId(val); 
+                                  // Reset mode if switching collections
+                                  setTargetModeId("");
+                                  handleParse(); 
+                                }}
+                                className="w-full px-2 py-1.5 text-[11px] border border-[#d0e6ff] rounded outline-none bg-white"
+                              >
+                                <option value="">-- Select existing --</option>
+                                {collections.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                              </select>
+                              <div className="relative">
+                                <input 
+                                  type="text" 
+                                  placeholder="Or type new name..." 
+                                  value={targetCollectionId}
+                                  onChange={(e) => { setTargetCollectionId(e.target.value); handleParse(); }}
+                                  className="w-full px-2 py-1.5 text-[10px] border border-[#e5e5e5] rounded focus:border-[#0d99ff] outline-none"
+                                />
+                                {targetCollectionId && !collections.some(c => c.name === targetCollectionId) && (
+                                  <div className="absolute right-2 top-1.5 text-[9px] text-amber-600 font-medium">New</div>
+                                )}
+                              </div>
+                            </div>
                          </div>
                          <div>
                             <label className="text-[10px] text-[#666] mb-1 block">{t.import.targetMode}</label>
-                            <input 
-                              type="text"
-                              value={targetModeId}
-                              onChange={(e) => { setTargetModeId(e.target.value); handleParse(); }}
-                              placeholder="e.g. dark"
-                              className="w-full px-2 py-1.5 text-[11px] border border-[#d0e6ff] rounded outline-none"
-                            />
+                            <div className="space-y-1">
+                              {collections.find(c => c.name === targetCollectionId) ? (
+                                <select
+                                  value={targetModeId}
+                                  onChange={(e) => { setTargetModeId(e.target.value); handleParse(); }}
+                                  className="w-full px-2 py-1.5 text-[11px] border border-[#d0e6ff] rounded outline-none bg-white"
+                                >
+                                  <option value="">-- Select mode --</option>
+                                  {collections.find(c => c.name === targetCollectionId)?.modes.map(m => (
+                                    <option key={m.modeId} value={m.name}>{m.name}</option>
+                                  ))}
+                                  <option value="NEW_MODE">+ Create new mode...</option>
+                                </select>
+                              ) : null}
+                              
+                              {(targetModeId === "NEW_MODE" || !collections.find(c => c.name === targetCollectionId)) && (
+                                <input 
+                                  type="text"
+                                  value={targetModeId === "NEW_MODE" ? "" : targetModeId}
+                                  onChange={(e) => { setTargetModeId(e.target.value); handleParse(); }}
+                                  placeholder="Type mode name (e.g. Dark)"
+                                  className="w-full px-2 py-1.5 text-[11px] border border-[#d0e6ff] rounded outline-none"
+                                  autoFocus={targetModeId === "NEW_MODE"}
+                                />
+                              )}
+                            </div>
                          </div>
                       </div>
                     )}

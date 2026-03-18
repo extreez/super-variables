@@ -111,6 +111,7 @@ export interface CodeSyntax {
 
 export interface TokenData {
   id: string;
+  customId?: string;
   name: string;             // full Figma path, e.g. "color/brand/500"
   resolvedType: 'COLOR' | 'FLOAT' | 'STRING' | 'BOOLEAN';
   valuesByMode: Record<string, TokenValue>; // modeId -> value
@@ -157,6 +158,7 @@ export interface ExportSettings {
   modeStrategy: ModeStrategy;
   groupDivider: string;
   includeIds: boolean;
+  includeCustomIds: boolean;
   includeScopes: boolean;
   selectedCollectionIds: string[];
   selectedModeIds: Record<string, string[]>; // collectionId -> array of modeIds
@@ -178,6 +180,7 @@ export interface ExportResult {
 export interface ImportToken {
   name: string;
   value: string;
+  customId?: string;
   type?: string;
   collection?: string;
   mode?: string;
@@ -187,6 +190,7 @@ export interface ImportToken {
 export interface ImportSettings {
   strategy: 'auto' | 'manual';
   importMode: 'create' | 'update';
+  useCustomIds: boolean;
   format: 'css' | 'json' | 'scss';
   targetCollectionId?: string; // used if strategy is manual
   targetModeId?: string;       // used if strategy is manual
