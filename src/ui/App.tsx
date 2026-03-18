@@ -5,13 +5,14 @@ import { VariablesTable } from "./components/variables-table";
 import { VariableDetails } from "./components/variable-details";
 import { ExportModal } from "./components/export-modal";
 import { ImportModal } from "./components/import-modal";
+import { ImportResultModal } from "./components/import-result-modal";
 import { GitSyncModal } from "./components/git-sync-modal";
 import {
   collections as mockCollections,
   groups as mockGroups,
   semanticVariables as mockVariables,
 } from "./components/variables-data";
-import { VariablesPayload, CollectionData, TokenData, PluginConfig } from "../core/types";
+import { VariablesPayload, CollectionData, TokenData, PluginConfig, ImportLog } from "../core/types";
 import { useEffect, useCallback, useRef } from "react";
 import { SettingsModal } from "./components/settings-modal";
 import { Language, translations } from "./locales";
@@ -30,6 +31,8 @@ export default function App() {
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showImportResultModal, setShowImportResultModal] = useState(false);
+  const [lastImportLog, setLastImportLog] = useState<ImportLog | null>(null);
   const [showGitSyncModal, setShowGitSyncModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isWindowMinimized, setIsWindowMinimized] = useState(false);
@@ -113,18 +116,9 @@ export default function App() {
           setSelectedGroup(prev => prev || "All");
         }
       } else if (msg.type === 'import-complete') {
-        const log = msg.log;
-        
-        // Convert log to File and trigger download if there are changes
-        if (log.added.length > 0 || log.updated.length > 0 || log.deleted.length > 0 || Object.keys(log.renames).length > 0 || log.errors.length > 0) {
-           const blob = new Blob([JSON.stringify(log, null, 2)], { type: "application/json" });
-           const url = URL.createObjectURL(blob);
-           const a = document.createElement("a");
-           a.href = url;
-           a.download = `import_log_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-           a.click();
-           URL.revokeObjectURL(url);
-        }
+        const log = msg.log as ImportLog;
+        setLastImportLog(log);
+        setShowImportResultModal(true);
       } else if (msg.type === 'collection-created') {
         setSelectedCollection(msg.name);
         setSelectedGroup("All");
@@ -175,6 +169,17 @@ export default function App() {
     setIsWindowMinimized(false);
     parent.postMessage({ pluginMessage: { type: 'resize-window', width: windowSize.width, height: windowSize.height } }, '*');
   };
+
+  const handleDownloadLog = useCallback(() => {
+    if (!lastImportLog) return;
+    const blob = new Blob([JSON.stringify(lastImportLog, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `import_log_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [lastImportLog]);
 
   // Map real data to UI format
   const displayCollections = (() => {
@@ -945,6 +950,13 @@ export default function App() {
         language={language}
         onLanguageChange={handleUpdateLanguage}
       />
-    </div>
-  );
-}
+      <ImportResultModal
+        isOpen={showImportResultModal}
+        onClose={() => setShowImportResultModal(false)}
+        log={lastImportLog}
+        language={language}
+        onDownload={handleDownloadLog}
+      />
+      </div>
+      );
+      }
