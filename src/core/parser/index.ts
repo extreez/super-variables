@@ -12,9 +12,21 @@ export class ImportParser {
       tokens = parseJSON(content, settings);
     }
 
-    return {
-      tokens,
+    const allTokens = tokens;
+    const activeTokens = allTokens.filter(t => !t.isDeleted);
+    const deletedPaths = Array.from(new Set(allTokens.filter(t => t.isDeleted).map(t => t.name)));
+
+    const payload: ImportPayload = {
+      tokens: activeTokens,
       settings
     };
+
+    if (deletedPaths.length > 0) {
+      payload.changes = {
+        deletions: deletedPaths
+      };
+    }
+
+    return payload;
   }
 }

@@ -361,6 +361,7 @@ export default function App() {
 
     return {
       id: t.id,
+      customId: (t as any).customId,
       name: t.name.split('/').pop() || t.name,
       path: t.name,
       type: t.resolvedType === 'FLOAT' ? 'number' : t.resolvedType.toLowerCase() as any,
@@ -588,6 +589,20 @@ export default function App() {
         groupName
       }
     }, '*');
+  };
+
+  const handleCreateVariable = (type: "color" | "number" | "string" | "boolean") => {
+    const collectionId = realCollections.find(c => c.name === selectedCollection)?.id;
+    if (collectionId) {
+      parent.postMessage({
+        pluginMessage: {
+          type: 'create-variable',
+          collectionId,
+          variableType: type.toUpperCase() === 'NUMBER' ? 'FLOAT' : type.toUpperCase(),
+          groupPath: selectedGroup === 'All' ? '' : selectedGroup
+        }
+      }, '*');
+    }
   };
 
 
@@ -843,6 +858,7 @@ export default function App() {
         onEditVariable={() => {}}
         onImportClick={() => setShowImportModal(true)}
         onExportClick={() => setShowExportModal(true)}
+        onCreateVariable={handleCreateVariable}
       />
 
       {/* Resize Handle */}
@@ -884,6 +900,15 @@ export default function App() {
               type: 'update-variable-description',
               variableId,
               description
+            }
+          }, '*');
+        }}
+        onUpdateCustomId={(variableId, customId) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'update-variable-custom-id',
+              variableId,
+              customId
             }
           }, '*');
         }}

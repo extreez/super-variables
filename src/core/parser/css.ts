@@ -39,14 +39,37 @@ export function parseCSS(content: string, settings: ImportSettings): ImportToken
       continue;
     }
 
+    // Heuristic: Check for common theme comments
+    // Example: /* Тема: Dark */ or /* Mode: Light (Default) */
+    const genericThemeMatch = line.match(/\/\*\s*(?:Тема|Theme|Mode|Коллекция|Collection)\s*:\s*([^(*]+?)(?:\s*\(.*?\))?\s*\*\//i);
+    if (genericThemeMatch) {
+      const value = genericThemeMatch[1].trim();
+      if (line.toLowerCase().includes('collection') || line.toLowerCase().includes('коллекция')) {
+        currentCollection = value;
+      } else {
+        currentMode = value;
+      }
+      continue;
+    }
+
     // Enter selector
     if (line.includes('{')) {
       inSelector = true;
       currentSelector = line.split('{')[0].trim();
       
-      // If it's a class selector (e.g. .theme-dark), treat it as a mode
-      if (currentSelector.startsWith('.') && currentSelector !== ':root') {
+      // Detection of mode from selector
+      if (currentSelector === ':root') {
+        // Keep current mode or set to default if not set by comment
+        if (currentMode === 'default' || !currentMode) currentMode = 'Light'; 
+      } else if (currentSelector.startsWith('.')) {
+        // Class selector: .theme-dark -> theme-dark
         currentMode = currentSelector.replace('.', '');
+      } else if (currentSelector.startsWith('[') && currentSelector.includes('=')) {
+        // Attribute selector: [data-theme="dark"] -> dark
+        const attrMatch = currentSelector.match(/=["']?([^\]"']+)["']?\]/);
+        if (attrMatch) {
+          currentMode = attrMatch[1];
+        }
       }
       continue;
     }
@@ -59,11 +82,29 @@ export function parseCSS(content: string, settings: ImportSettings): ImportToken
 
     // Parse CSS variable
     if (inSelector && line.startsWith('--')) {
-      const match = line.match(/--([^:]+):\s*(.+);?/);
+      const match = line.match(/--([^:]+):\s*([^;]+);?(.*)/);
       if (match) {
         const rawName = match[1].trim();
-        let value = match[2].trim().replace(/;$/, '');
+        let value = match[2].trim();
+        const commentPart = match[3].trim();
         
+        let customId: string | undefined = undefined;
+
+        // Try to extract metadata from comment part or within the value line
+        const fullLineCommentMatch = line.match(/\/\*\s*(.*?)\s*\*\//);
+        if (fullLineCommentMatch) {
+          const commentContent = fullLineCommentMatch[1];
+          const idMatch = commentContent.match(/id:\s*([^\s,]+)/);
+          const customIdMatch = commentContent.match(/customId:\s*([^\s,]+)/);
+          
+          if (customIdMatch) {
+            customId = customIdMatch[1];
+          } else if (idMatch) {
+            // Fallback to id if customId not present, but usually we want customId for sync
+            customId = idMatch[1];
+          }
+        }
+
         // Reverse formatting based on divider
         // Rule: --color--brand-500 -> color/brand/500
         let figmaName = rawName;
@@ -87,9 +128,15 @@ export function parseCSS(content: string, settings: ImportSettings): ImportToken
           }
         }
 
+        // Detect deletion marker
+        const isDeleted = value.toLowerCase() === 'delete' || commentPart.toLowerCase().includes('@delete');
+        
+        // If it's deleted, we still need the name for the deletion list
+        // and we can skip other processing if it's a direct 'delete' value
+        
         // Robust alias detection: var(  --name  )
         const aliasMatch = value.match(/var\s*\(\s*--([^)]+)\s*\)/);
-        const isAlias = !!aliasMatch;
+        const isAlias = !!aliasMatch && !isDeleted;
         let finalValue = value;
         
         if (isAlias && aliasMatch) {
@@ -104,12 +151,17 @@ export function parseCSS(content: string, settings: ImportSettings): ImportToken
           }
         }
 
+        // Clean value if any trailing comment was somehow left
+        finalValue = finalValue.split('/*')[0].trim();
+
         tokens.push({
           name: figmaName,
-          value: finalValue,
+          value: isDeleted ? 'delete' : finalValue,
+          customId: customId,
           collection: currentCollection,
           mode: currentMode,
-          isAlias
+          isAlias,
+          isDeleted
         });
       }
     }

@@ -1,0 +1,9 @@
+{
+  "deletions": [
+    "color/brand/primary",
+    "spacing/deprecated"
+  ],
+  "renames": {
+    "color/old-name": "color/new-name"
+  }
+}

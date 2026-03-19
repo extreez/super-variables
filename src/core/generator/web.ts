@@ -55,7 +55,7 @@ function generateCSS(
             const varName = formatName(t.name, settings.groupDivider, '--');
             let metadata = [];
             if (settings.includeIds) metadata.push(`id: ${t.id}`);
-            if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+            if (settings.includeCustomIds) metadata.push(`customId: ${t.customId || t.id}`);
             
             const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
             content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};${comment}\n`;
@@ -86,7 +86,7 @@ function generateCSS(
             const varName = formatName(t.name, settings.groupDivider, '--');
             let metadata = [];
             if (settings.includeIds) metadata.push(`id: ${t.id}`);
-            if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+            if (settings.includeCustomIds) metadata.push(`customId: ${t.customId || t.id}`);
             
             const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
             content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};${comment}\n`;
@@ -123,7 +123,7 @@ function generateCSSSeparateFiles(
           const varName = formatName(t.name, settings.groupDivider, '--');
           let metadata = [];
           if (settings.includeIds) metadata.push(`id: ${t.id}`);
-          if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+          if (settings.includeCustomIds) metadata.push(`customId: ${t.customId || t.id}`);
           
           const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
           content += `  ${varName}: ${formatValue(val, settings, tokens, '--', modeId)};${comment}\n`;
@@ -165,7 +165,7 @@ function generatePreprocessors(
         const varName = formatName(t.name, settings.groupDivider, prefix);
         let metadata = [];
         if (settings.includeIds) metadata.push(`id: ${t.id}`);
-        if (settings.includeCustomIds && t.customId) metadata.push(`customId: ${t.customId}`);
+        if (settings.includeCustomIds) metadata.push(`customId: ${t.customId || t.id}`);
         
         const comment = metadata.length > 0 ? ` /* ${metadata.join(', ')} */` : '';
         content += `${varName}: ${formatValue(val, settings, tokens, prefix, firstModeId)};${comment}\n`;

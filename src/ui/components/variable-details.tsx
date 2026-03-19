@@ -42,7 +42,7 @@ function figmaScopesToTokenScopes(figmaScopes: string[], type: string): TokenSco
   } else if (type === 'string') {
     scopes.string.textContent = has('TEXT_CONTENT');
     scopes.string.fontFamily = has('FONT_FAMILY');
-    scopes.string.fontWeightOrStyle = has('FONT_WEIGHT') || has('FONT_STYLE');
+    scopes.string.fontStyle = has('FONT_STYLE');
   }
 
   return scopes;
@@ -84,10 +84,7 @@ function tokenScopesToFigmaScopes(tokenScopes: TokenScopes, type: string): strin
   } else if (type === 'string' && s.string) {
     if (s.string.textContent) figmaScopes.push('TEXT_CONTENT');
     if (s.string.fontFamily) figmaScopes.push('FONT_FAMILY');
-    if (s.string.fontWeightOrStyle) {
-      figmaScopes.push('FONT_WEIGHT');
-      figmaScopes.push('FONT_STYLE');
-    }
+    if (s.string.fontStyle) figmaScopes.push('FONT_STYLE');
   }
 
   return figmaScopes;
@@ -111,6 +108,7 @@ interface VariableDetailsProps {
   onUpdateCodeSyntax?: (variableId: string, codeSyntax: CodeSyntax) => void;
   onUpdateScopes?: (variableIds: string[], scopes: TokenScopes) => void;
   onUpdateName?: (variableId: string, newName: string) => void;
+  onUpdateCustomId?: (variableId: string, customId: string) => void;
   activeTab?: TabType;
   onActiveTabChange?: (tab: TabType) => void;
 }
@@ -128,6 +126,7 @@ export function VariableDetails({
   language = 'en',
   onToggleCollapse,
   onUpdateDescription,
+  onUpdateCustomId,
   onUpdateHidden,
   onUpdateValue,
   onUpdateCodeSyntax,
@@ -150,6 +149,8 @@ export function VariableDetails({
   // Editing states
   const [editingDescription, setEditingDescription] = useState<string | null>(null);
   const [tempDescription, setTempDescription] = useState("");
+  const [editingCustomId, setEditingCustomId] = useState<string | null>(null);
+  const [tempCustomId, setTempCustomId] = useState("");
   const [editingCodeSyntax, setEditingCodeSyntax] = useState<{ platform: string, field: string } | null>(null);
   const [tempCodeSyntax, setTempCodeSyntax] = useState("");
   const [editingName, setEditingName] = useState<string | null>(null);
@@ -221,6 +222,21 @@ export function VariableDetails({
       handleDescriptionBlur();
     } else if (e.key === "Escape") {
       setEditingDescription(null);
+    }
+  };
+
+  const handleCustomIdBlur = () => {
+    if (editingCustomId && variable) {
+      onUpdateCustomId?.(variable.id, tempCustomId.trim());
+      setEditingCustomId(null);
+    }
+  };
+
+  const handleCustomIdKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleCustomIdBlur();
+    } else if (e.key === "Escape") {
+      setEditingCustomId(null);
     }
   };
 
@@ -298,7 +314,7 @@ export function VariableDetails({
         } else if (t === 'string') {
           newScopes[t].textContent = checked;
           newScopes[t].fontFamily = checked;
-          newScopes[t].fontWeightOrStyle = checked;
+          newScopes[t].fontStyle = checked;
         }
       });
     } else {
@@ -324,7 +340,7 @@ export function VariableDetails({
       } else if (type === 'string') {
         newScopes[type].textContent = checked;
         newScopes[type].fontFamily = checked;
-        newScopes[type].fontWeightOrStyle = checked;
+        newScopes[type].fontStyle = checked;
       }
     }
 
@@ -526,7 +542,7 @@ export function VariableDetails({
               {[
                 { key: 'textContent', label: 'Text Content' },
                 { key: 'fontFamily', label: 'Font Family' },
-                { key: 'fontWeightOrStyle', label: 'Font Weight or Style' },
+                { key: 'fontStyle', label: 'Font Style' },
               ].map(item => (
                 <div key={item.key} className="flex items-center justify-between">
                   <span className="text-[11px] text-[#666] ml-2">{item.label}</span>
@@ -802,6 +818,37 @@ export function VariableDetails({
                       title={variable.description}
                     >
                       {variable.description || <span className="text-[#ccc]">{t.details.addDescription}</span>}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Custom ID */}
+              <div className="flex items-start gap-2">
+                <span className="text-[11px] text-[#999] shrink-0 w-16">
+                  Custom ID
+                </span>
+                <div className="flex-1 min-w-0">
+                  {editingCustomId === variable.id ? (
+                    <input
+                      type="text"
+                      value={tempCustomId}
+                      onChange={(e) => setTempCustomId(e.target.value)}
+                      onBlur={handleCustomIdBlur}
+                      onKeyDown={handleCustomIdKeyDown}
+                      autoFocus
+                      className="w-full text-[11px] text-[#333] bg-white border border-[#0d99ff] outline-none px-2 py-1 rounded"
+                    />
+                  ) : (
+                    <div
+                      onClick={() => {
+                        setEditingCustomId(variable.id);
+                        setTempCustomId(variable.customId || "");
+                      }}
+                      className="text-[11px] text-[#333] px-2 py-1 rounded hover:bg-[#f5f5f5] cursor-text truncate"
+                      title={variable.customId || variable.id}
+                    >
+                      {variable.customId || <span className="text-[#ccc]">Add custom ID...</span>}
                     </div>
                   )}
                 </div>

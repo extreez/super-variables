@@ -1,4 +1,4 @@
-import { TokenData, CollectionData, ExportSettings, ExportFile } from '../types';
+import { TokenData, CollectionData, ExportSettings, ExportFile, TokenValue } from '../types';
 import { formatValue } from './utils';
 
 export function generateJSONExport(
@@ -6,64 +6,76 @@ export function generateJSONExport(
   collections: CollectionData[],
   settings: ExportSettings
 ): ExportFile[] {
-  if (settings.format === 'json') {
-    if (settings.platform === 'style-dictionary') {
-      return [{ name: 'tokens.json', content: JSON.stringify(generateStyleDictionary(tokens, collections, settings), null, 2), type: 'json' }];
-    } else if (settings.platform === 'dtcg') {
-      return [{ name: 'tokens.json', content: JSON.stringify(generateDTCG(tokens, collections, settings), null, 2), type: 'json' }];
-    } else {
-      return [{ name: 'tokens.json', content: JSON.stringify(generateFlatJSON(tokens, collections, settings), null, 2), type: 'json' }];
-    }
-  }
-  return [];
-}
+  if (settings.format !== 'json') return [];
 
-function generateFlatJSON(
-  tokens: TokenData[],
-  collections: CollectionData[],
-  settings: ExportSettings
-): any {
-  const result: any = {};
+  // Separate files strategy
+  if (settings.modeStrategy === 'separate-files') {
+    const files: ExportFile[] = [];
+    
+    collections.forEach(col => {
+      if (!settings.selectedCollectionIds.includes(col.id)) return;
+      
+      const modeIds = settings.selectedModeIds[col.id] || col.modes.map(m => m.modeId);
+      modeIds.forEach(modeId => {
+        const mode = col.modes.find(m => m.modeId === modeId);
+        if (!mode) return;
+        
+        const content = generateStructuredJSON(tokens, col, modeId, settings);
+        files.push({
+          name: `${col.name.toLowerCase().replace(/\s+/g, '-')}.${mode.name.toLowerCase().replace(/\s+/g, '-')}.json`,
+          content: JSON.stringify(content, null, 2),
+          type: 'json'
+        });
+      });
+    });
+    
+    return files;
+  }
+
+  // Combined file strategy: Nest by collection and mode
+  const result: any = {
+    collections: {}
+  };
 
   collections.forEach(col => {
     if (!settings.selectedCollectionIds.includes(col.id)) return;
     
-    const firstModeId = col.modes[0].modeId;
-    const colTokens = tokens.filter(t => t.collectionId === col.id);
+    result.collections[col.name] = {
+      id: col.id,
+      modes: {}
+    };
     
-    colTokens.forEach(t => {
-      const val = t.valuesByMode[firstModeId];
-      if (val) {
-        if (settings.includeCustomIds && t.customId) {
-          result[t.name] = {
-            value: formatValue(val, settings, tokens, '', firstModeId),
-            customId: t.customId
-          };
-        } else {
-          result[t.name] = formatValue(val, settings, tokens, '', firstModeId);
-        }
-      }
+    const modeIds = settings.selectedModeIds[col.id] || col.modes.map(m => m.modeId);
+    modeIds.forEach(modeId => {
+      const mode = col.modes.find(m => m.modeId === modeId);
+      if (!mode) return;
+      
+      result.collections[col.name].modes[mode.name] = generateStructuredJSON(tokens, col, modeId, settings);
     });
   });
 
-  return result;
+  return [{ 
+    name: 'tokens.json', 
+    content: JSON.stringify(result, null, 2), 
+    type: 'json' 
+  }];
 }
 
-function generateStyleDictionary(
+/**
+ * Generates a structured JSON for a specific collection and mode
+ */
+function generateStructuredJSON(
   tokens: TokenData[],
-  collections: CollectionData[],
+  collection: CollectionData,
+  modeId: string,
   settings: ExportSettings
 ): any {
-  const result: any = {};
+  const colTokens = tokens.filter(t => t.collectionId === collection.id);
 
-  collections.forEach(col => {
-    if (!settings.selectedCollectionIds.includes(col.id)) return;
-    
-    const firstModeId = col.modes[0].modeId;
-    const colTokens = tokens.filter(t => t.collectionId === col.id);
-    
+  if (settings.platform === 'style-dictionary') {
+    const result: any = {};
     colTokens.forEach(t => {
-      const val = t.valuesByMode[firstModeId];
+      const val = t.valuesByMode[modeId];
       if (!val) return;
 
       const path = t.name.split('/');
@@ -72,11 +84,11 @@ function generateStyleDictionary(
       path.forEach((p, i) => {
         if (i === path.length - 1) {
           current[p] = {
-            value: formatValue(val, settings, tokens, '', firstModeId),
+            value: formatValue(val, settings, tokens, '', modeId),
             type: t.resolvedType.toLowerCase(),
             comment: t.description,
             ...(settings.includeIds && { id: t.id }),
-            ...(settings.includeCustomIds && t.customId && { customId: t.customId })
+            ...(settings.includeCustomIds && { customId: t.customId || t.id })
           };
         } else {
           current[p] = current[p] || {};
@@ -84,27 +96,13 @@ function generateStyleDictionary(
         }
       });
     });
-  });
+    return result;
+  }
 
-  return result;
-}
-
-function generateDTCG(
-  tokens: TokenData[],
-  collections: CollectionData[],
-  settings: ExportSettings
-): any {
-  // Design Tokens Community Group (DTCG) format
-  const result: any = {};
-
-  collections.forEach(col => {
-    if (!settings.selectedCollectionIds.includes(col.id)) return;
-    
-    const firstModeId = col.modes[0].modeId;
-    const colTokens = tokens.filter(t => t.collectionId === col.id);
-    
+  if (settings.platform === 'dtcg') {
+    const result: any = {};
     colTokens.forEach(t => {
-      const val = t.valuesByMode[firstModeId];
+      const val = t.valuesByMode[modeId];
       if (!val) return;
 
       const path = t.name.split('/');
@@ -113,11 +111,11 @@ function generateDTCG(
       path.forEach((p, i) => {
         if (i === path.length - 1) {
           current[p] = {
-            $value: formatValue(val, settings, tokens, '', firstModeId),
+            $value: formatValue(val, settings, tokens, '', modeId),
             $type: t.resolvedType.toLowerCase(),
             $description: t.description,
             ...(settings.includeIds && { $id: t.id }),
-            ...(settings.includeCustomIds && t.customId && { $customId: t.customId })
+            ...(settings.includeCustomIds && { $customId: t.customId || t.id })
           };
         } else {
           current[p] = current[p] || {};
@@ -125,7 +123,24 @@ function generateDTCG(
         }
       });
     });
-  });
+    return result;
+  }
 
+  // Default: Flat Map
+  const result: any = {};
+  colTokens.forEach(t => {
+    const val = t.valuesByMode[modeId];
+    if (val) {
+      if (settings.includeCustomIds) {
+        result[t.name] = {
+          value: formatValue(val, settings, tokens, '', modeId),
+          customId: t.customId || t.id,
+          type: t.resolvedType.toLowerCase()
+        };
+      } else {
+        result[t.name] = formatValue(val, settings, tokens, '', modeId);
+      }
+    }
+  });
   return result;
 }

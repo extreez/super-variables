@@ -79,7 +79,7 @@ export interface NumberScopes {
 export interface StringScopes {
   textContent?: boolean;
   fontFamily?: boolean;
-  fontWeightOrStyle?: boolean;
+  fontStyle?: boolean;
 }
 
 export interface BooleanScopes {
@@ -185,6 +185,7 @@ export interface ImportToken {
   collection?: string;
   mode?: string;
   isAlias?: boolean;
+  isDeleted?: boolean;
 }
 
 export interface ImportSettings {

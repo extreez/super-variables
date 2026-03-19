@@ -11,13 +11,15 @@ export function parseJSON(content: string, settings: ImportSettings): ImportToke
       // Handle flat array format if someone manually created it
       data.forEach(item => {
         if (item.name && item.value !== undefined) {
+          const isDeleted = String(item.value).toLowerCase() === 'delete' || !!item.isDeleted;
           tokens.push({
             name: item.name,
             value: String(item.value),
             type: item.type,
             collection: item.collection || settings.targetCollectionId || 'Imported',
             mode: item.mode || settings.targetModeId || 'default',
-            isAlias: String(item.value).includes('{')
+            isAlias: String(item.value).includes('{') && !isDeleted,
+            isDeleted
           });
         }
       });
@@ -41,7 +43,8 @@ function flattenObject(obj: any, currentPath: string, tokens: ImportToken[], set
       if ('value' in value || '$value' in value) {
         const val = value.value || value.$value;
         const type = value.type || value.$type;
-        const isAlias = typeof val === 'string' && val.includes('{');
+        const isDeleted = String(val).toLowerCase() === 'delete';
+        const isAlias = typeof val === 'string' && val.includes('{') && !isDeleted;
         
         let finalValue = String(val);
         if (isAlias) {
@@ -61,14 +64,16 @@ function flattenObject(obj: any, currentPath: string, tokens: ImportToken[], set
           type: typeof type === 'string' ? type.toUpperCase() : undefined,
           collection: settings.targetCollectionId || 'Imported',
           mode: settings.targetModeId || 'default',
-          isAlias
+          isAlias,
+          isDeleted
         });
       } else {
         flattenObject(value, path, tokens, settings);
       }
     } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
       // Simple flat JSON or leaf node
-      const isAlias = typeof value === 'string' && value.includes('{');
+      const isDeleted = String(value).toLowerCase() === 'delete';
+      const isAlias = typeof value === 'string' && value.includes('{') && !isDeleted;
       
       let finalValue = String(value);
       if (isAlias) {
@@ -83,7 +88,8 @@ function flattenObject(obj: any, currentPath: string, tokens: ImportToken[], set
         value: finalValue,
         collection: settings.targetCollectionId || 'Imported',
         mode: settings.targetModeId || 'default',
-        isAlias
+        isAlias,
+        isDeleted
       });
     }
   }

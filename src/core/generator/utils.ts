@@ -91,7 +91,7 @@ export function formatValue(
   tokens: TokenData[],
   prefix: string = '--',
   modeId?: string // Optional: used for deep alias resolution
-): string {
+): string | number | boolean {
   if (value.type === 'alias') {
     if (settings.aliasStrategy === 'reference') {
       const targetToken = tokens.find(t => t.id === value.id);
@@ -128,8 +128,18 @@ export function formatValue(
     if (settings.unitSystem === 'rem') {
       return `${parseFloat((value.value / settings.baseFontSize).toFixed(4))}rem`;
     }
+    // For JSON, we might want just the number if it's px and format is not CSS-like
+    if (settings.format === 'json') return value.value;
     return `${value.value}px`;
   }
+  
+  if (value.type === 'boolean') {
+    return value.value; // Return actual boolean
+  }
 
-  return String(value.value);
+  if (value.type === 'string') {
+    return value.value;
+  }
+
+  return String((value as any).value || "");
 }

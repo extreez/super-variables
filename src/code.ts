@@ -43,6 +43,12 @@ figma.on("documentchange", async (event) => {
   }
 });
 
+// === Helper functions ===
+
+function generateHash(): string {
+  return Math.random().toString(36).substring(2, 10).toUpperCase();
+}
+
 // === Read variables from Figma ===
 
 async function readVariables(): Promise<VariablesPayload> {
@@ -72,9 +78,15 @@ async function readVariables(): Promise<VariablesPayload> {
       valuesByMode[modeId] = convertValue(rawValue, v.resolvedType, variableMap);
     }
 
+    let customId = v.getPluginData('customId');
+    if (!customId) {
+      customId = generateHash();
+      v.setPluginData('customId', customId);
+    }
+
     return {
       id: v.id,
-      customId: v.getPluginData('customId') || undefined,
+      customId,
       name: v.name,
       resolvedType: v.resolvedType,
       valuesByMode,
@@ -150,23 +162,57 @@ async function importVariables(payload: import('./core/types').ImportPayload) {
     if (changes) {
       if (changes.deletions && Array.isArray(changes.deletions)) {
         for (const path of changes.deletions) {
-          const varsToDelete = figmaVariables.filter(v => v.name === path || v.name.startsWith(path + '/'));
+          // Find variables by exact name or group prefix
+          const varsToDelete = figmaVariables.filter(v => 
+            v.name === path || v.name.startsWith(path + '/')
+          );
+          
           for (const v of varsToDelete) {
-            v.remove();
-            log.deleted.push(v.name);
+            try {
+              const deletedName = v.name;
+              v.remove();
+              log.deleted.push(deletedName);
+              // Update local state to avoid trying to access deleted variable
+              figmaVariables = figmaVariables.filter(fv => fv.id !== v.id);
+            } catch (e) {
+              console.error(`Failed to delete variable: ${v.name}`, e);
+            }
           }
         }
-        figmaVariables = await figma.variables.getLocalVariablesAsync(); // refresh
       }
 
       if (changes.renames && typeof changes.renames === 'object') {
         for (const [oldPath, newPath] of Object.entries(changes.renames)) {
           const varsToRename = figmaVariables.filter(v => v.name === oldPath || v.name.startsWith(oldPath + '/'));
           for (const v of varsToRename) {
+            const oldName = v.name;
             const relativePath = v.name.substring(oldPath.length);
             const finalNewPath = `${newPath}${relativePath}`;
+            
             v.name = finalNewPath;
-            log.renames[v.name] = finalNewPath;
+            log.renames[oldName] = finalNewPath;
+
+            // CRITICAL: Also update the name and all REFERENCES in the tokens array
+            if (tokens) {
+              for (const t of tokens) {
+                // 1. Update the token's own name if it matches
+                if (t.name === oldName) {
+                  t.name = finalNewPath;
+                } else if (t.name.startsWith(oldPath + '/')) {
+                  const tRelPath = t.name.substring(oldPath.length);
+                  t.name = `${newPath}${tRelPath}`;
+                }
+
+                // 2. Update ALL values that might be aliasing this token
+                // If it's an alias, the 'value' property contains the path string
+                if (t.isAlias && t.value === oldName) {
+                   t.value = finalNewPath;
+                } else if (t.isAlias && t.value.startsWith(oldPath + '/')) {
+                   const vRelPath = t.value.substring(oldPath.length);
+                   t.value = `${newPath}${vRelPath}`;
+                }
+              }
+            }
           }
         }
         figmaVariables = await figma.variables.getLocalVariablesAsync(); // refresh
@@ -420,6 +466,8 @@ async function importVariables(payload: import('./core/types').ImportPayload) {
 
 function getVariableType(value: any): VariableResolvedDataType {
   if (typeof value === 'string') {
+    const lowerValue = value.toLowerCase().trim();
+    if (lowerValue === 'true' || lowerValue === 'false') return 'BOOLEAN';
     if (value.startsWith('#') || value.startsWith('rgba') || value.startsWith('rgb') || value.startsWith('hsl')) return 'COLOR';
     if (value.endsWith('px') || value.endsWith('rem')) return 'FLOAT';
     return 'STRING';
@@ -702,6 +750,50 @@ figma.ui.onmessage = async (msg: { type: string; payload?: any; width?: number; 
       break;
     }
 
+    case 'create-variable': {
+      const { collectionId, variableType, groupPath } = msg as any;
+      try {
+        const collection = await figma.variables.getVariableCollectionByIdAsync(collectionId);
+        if (!collection) throw new Error("Collection not found");
+
+        const baseName = "New Variable";
+        const name = groupPath ? `${groupPath}/${baseName}` : baseName;
+        
+        // Ensure name is unique in this collection
+        let finalName = name;
+        let counter = 1;
+        const existingVars = await figma.variables.getLocalVariablesAsync();
+        const collectionVars = existingVars.filter(v => v.variableCollectionId === collectionId);
+        
+        while (collectionVars.some(v => v.name === finalName)) {
+          finalName = groupPath ? `${groupPath}/${baseName} ${counter}` : `${baseName} ${counter}`;
+          counter++;
+        }
+
+        const variable = figma.variables.createVariable(finalName, collection, variableType);
+        
+        // Set initial values for all modes
+        for (const mode of collection.modes) {
+          if (variableType === 'COLOR') {
+            variable.setValueForMode(mode.modeId, { r: 0, g: 0, b: 0 });
+          } else if (variableType === 'FLOAT') {
+            variable.setValueForMode(mode.modeId, 0);
+          } else if (variableType === 'STRING') {
+            variable.setValueForMode(mode.modeId, "");
+          } else if (variableType === 'BOOLEAN') {
+            variable.setValueForMode(mode.modeId, false);
+          }
+        }
+
+        const data = await readVariables();
+        figma.ui.postMessage({ type: 'variables-loaded', payload: data });
+        figma.notify(`Created ${variableType.toLowerCase()} variable`);
+      } catch (e) {
+        figma.notify('Failed to create variable: ' + (e as any).message, { error: true });
+      }
+      break;
+    }
+
     case 'delete-mode': {
       const { collectionId, modeId } = msg as any;
       const collection = await figma.variables.getVariableCollectionByIdAsync(collectionId);
@@ -713,6 +805,117 @@ figma.ui.onmessage = async (msg: { type: string; payload?: any; width?: number; 
         } catch (e) {
           figma.notify('Failed to delete: ' + (e as any).message, { error: true });
         }
+      }
+      break;
+    }
+
+    case 'create-color-style': {
+      const { name, variableId } = msg as any;
+      try {
+        const variable = await figma.variables.getVariableByIdAsync(variableId);
+        if (!variable) {
+          figma.notify("Variable not found", { error: true });
+          break;
+        }
+
+        const style = figma.createPaintStyle();
+        style.name = name;
+        
+        const paint: SolidPaint = { type: 'SOLID', color: { r: 1, g: 1, b: 1 } };
+        const boundPaint = figma.variables.setBoundVariableForPaint(paint, 'color', variable);
+        style.paints = [boundPaint];
+        
+        figma.notify(`Style "${name}" created and linked to variable "${variable.name}"`);
+      } catch (e) {
+        figma.notify("Failed to create style: " + (e as any).message, { error: true });
+      }
+      break;
+    }
+
+    case 'create-typography-style': {
+      const { name, config } = msg as any;
+      try {
+        const style = figma.createTextStyle();
+        style.name = name;
+
+        const attributes: Record<string, string | undefined> = {
+          'fontFamily': config.fontFamilyId,
+          'fontWeight': config.fontWeightId,
+          'fontSize': config.fontSizeId,
+          'lineHeight': config.lineHeightId,
+          'letterSpacing': config.letterSpacingId
+        };
+
+        for (const [attr, varId] of Object.entries(attributes)) {
+          if (varId) {
+            const variable = await figma.variables.getVariableByIdAsync(varId);
+            if (variable) {
+              try {
+                style.setBoundVariableForAttribute(attr as TextStylePropertyValue, variable);
+              } catch (err) {
+                console.warn(`Failed to bind ${attr}:`, err);
+              }
+            }
+          }
+        }
+
+        figma.notify(`Typography style "${name}" created`);
+      } catch (e) {
+        figma.notify("Failed to create typography style: " + (e as any).message, { error: true });
+      }
+      break;
+    }
+
+    case 'create-effect-style': {
+      const { name, config } = msg as any;
+      try {
+        const style = figma.createEffectStyle();
+        style.name = name;
+
+        // Create base effect
+        const effect: Effect = config.type === "DROP_SHADOW" || config.type === "INNER_SHADOW" 
+          ? {
+              type: config.type as "DROP_SHADOW" | "INNER_SHADOW",
+              color: { r: 0, g: 0, b: 0, a: 0.25 },
+              offset: { x: 0, y: 0 },
+              radius: 0,
+              spread: 0,
+              visible: true,
+              blendMode: "NORMAL"
+            }
+          : {
+              type: config.type as "LAYER_BLUR" | "BACKGROUND_BLUR",
+              radius: 0,
+              visible: true
+            };
+
+        style.effects = [effect];
+
+        // Bind variables to effect attributes
+        const attributes: Record<string, string | undefined> = {
+          'color': config.colorId,
+          'offset-x': config.offsetXId,
+          'offset-y': config.offsetYId,
+          'radius': config.radiusId,
+          'spread': config.spreadId
+        };
+
+        for (const [attr, varId] of Object.entries(attributes)) {
+          if (varId) {
+            const variable = await figma.variables.getVariableByIdAsync(varId);
+            if (variable) {
+              try {
+                style.setBoundVariableForAttribute(attr as EffectStylePropertyValue, variable);
+              } catch (err) {
+                console.warn(`Failed to bind effect ${attr}:`, err);
+              }
+            }
+          }
+        }
+
+        figma.notify(`Effect style "${name}" created`);
+      } catch (e) {
+        figma.notify("Failed to create effect style: " + (e as any).message, { error: true });
       }
       break;
     }
@@ -842,6 +1045,17 @@ figma.ui.onmessage = async (msg: { type: string; payload?: any; width?: number; 
       const variable = await figma.variables.getVariableByIdAsync(variableId);
       if (variable) {
         variable.name = newName;
+        const data = await readVariables();
+        figma.ui.postMessage({ type: 'variables-loaded', payload: data });
+      }
+      break;
+    }
+
+    case 'update-variable-custom-id': {
+      const { variableId, customId } = msg as any;
+      const variable = await figma.variables.getVariableByIdAsync(variableId);
+      if (variable) {
+        variable.setPluginData('customId', customId);
         const data = await readVariables();
         figma.ui.postMessage({ type: 'variables-loaded', payload: data });
       }

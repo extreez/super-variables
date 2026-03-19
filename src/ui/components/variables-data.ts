@@ -2,6 +2,7 @@ import { TokenScopes, CodeSyntax } from "../../core/types";
 
 export interface Variable {
   id: string;
+  customId?: string;
   name: string;
   path: string;
   type: "color" | "number" | "string" | "boolean" | "function";

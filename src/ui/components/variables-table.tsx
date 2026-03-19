@@ -5,10 +5,15 @@ import type { Variable } from "./variables-data";
 import { useRef, useEffect } from "react";
 import { TokenPicker } from "./token-picker";
 import { ColorPicker } from "./color-picker";
+import { CreateColorStyleModal } from "./create-color-style-modal";
+import { CreateTypographyStyleModal, TypographyConfig } from "./create-typography-style-modal";
+import { CreateEffectStyleModal, EffectConfig } from "./create-effect-style-modal";
 import type { PluginConfig } from "../../core/types";
 import { DraggableRow } from "./draggable-row";
 import { DroppableGroupHeader } from "./droppable-group-header";
 import { Language, translations } from "../locales";
+
+import { Switch } from "./ui/switch";
 
 interface VariablesTableProps {
   variables: Variable[];
@@ -40,6 +45,7 @@ interface VariablesTableProps {
   onEditVariable?: () => void;
   onImportClick?: () => void;
   onExportClick?: () => void;
+  onCreateVariable?: (type: "color" | "number" | "string" | "boolean") => void;
 }
 
 import { Mode } from "./variables-data";
@@ -74,6 +80,7 @@ export function VariablesTable({
   onEditVariable,
   onImportClick,
   onExportClick,
+  onCreateVariable,
 }: VariablesTableProps) {
   const t = translations[language];
   const [searchQuery, setSearchQuery] = useState("");
@@ -85,6 +92,9 @@ export function VariablesTable({
   const [tempCellValue, setTempCellValue] = useState("");
   const [showAddTokenMenu, setShowAddTokenMenu] = useState(false);
   const [showCreateStyleMenu, setShowCreateStyleMenu] = useState(false);
+  const [showCreateColorStyleModal, setShowCreateColorStyleModal] = useState(false);
+  const [showCreateTypographyStyleModal, setShowCreateTypographyStyleModal] = useState(false);
+  const [showCreateEffectStyleModal, setShowCreateEffectStyleModal] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [activeTypeFilters, setActiveTypeFilters] = useState<string[]>(["color", "number", "string", "boolean", "function"]);
 
@@ -397,15 +407,22 @@ export function VariablesTable({
   };
 
   const handleAddToken = (type: "color" | "number" | "string" | "boolean" | "function") => {
-    console.log("Adding token of type:", type);
+    if (type !== "function" && onCreateVariable) {
+      onCreateVariable(type);
+    }
     setShowAddTokenMenu(false);
-    // TODO: Implement token creation logic
   };
 
   const handleCreateStyle = (type: "color" | "typography" | "effect" | "grid") => {
     console.log("Creating style of type:", type);
     setShowCreateStyleMenu(false);
-    // TODO: Implement style creation logic
+    if (type === "color") {
+      setShowCreateColorStyleModal(true);
+    } else if (type === "typography") {
+      setShowCreateTypographyStyleModal(true);
+    } else if (type === "effect") {
+      setShowCreateEffectStyleModal(true);
+    }
   };
 
   const filtered = variables.filter((v) => {
@@ -750,12 +767,28 @@ export function VariablesTable({
                                         {data?.colorSwatch && (
                                           <ColorVariableIcon color={data.colorSwatch} />
                                         )}
-                                        <span
-                                          className="text-[11px] whitespace-nowrap truncate overflow-hidden"
-                                          style={{ direction: 'rtl', textAlign: 'left' }}
-                                        >
-                                          <bdo dir="ltr">{data?.value || ""}</bdo>
-                                        </span>
+
+                                        {variable.type === 'boolean' && !data?.isAlias ? (
+                                          <div className="flex items-center py-1">
+                                            <Switch
+                                              checked={data?.value === 'true' || data?.value === true}
+                                              onCheckedChange={(checked) => {
+                                                if (onUpdateVariable) {
+                                                  onUpdateVariable(variable.id, mode.modeId, String(checked));
+                                                }
+                                              }}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className={isSelected ? "data-[state=unchecked]:bg-white/20" : ""}
+                                            />
+                                          </div>
+                                        ) : (
+                                          <span
+                                            className="text-[11px] whitespace-nowrap truncate overflow-hidden"
+                                            style={{ direction: 'rtl', textAlign: 'left' }}
+                                          >
+                                            <bdo dir="ltr">{data?.value || ""}</bdo>
+                                          </span>
+                                        )}
                                       </div>
                                       {data?.isAlias ? (
                                         <button
@@ -1242,6 +1275,49 @@ export function VariablesTable({
           colorSwatch: v.valuesByMode[Object.keys(v.valuesByMode)[0]]?.colorSwatch,
         }))}
         collections={Array.from(new Set(allVariables.map(v => v.libraryName || "Local"))).map(lib => ({ id: lib, name: lib }))}
+      />
+
+      <CreateColorStyleModal
+        isOpen={showCreateColorStyleModal}
+        onClose={() => setShowCreateColorStyleModal(false)}
+        tokens={allVariables}
+        onCreate={(name, tokenId) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: "create-color-style",
+              name,
+              variableId: tokenId
+            }
+          }, "*");
+        }}
+      />
+      <CreateTypographyStyleModal
+        isOpen={showCreateTypographyStyleModal}
+        onClose={() => setShowCreateTypographyStyleModal(false)}
+        tokens={allVariables}
+        onCreate={(name, config) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: "create-typography-style",
+              name,
+              config
+            }
+          }, "*");
+        }}
+      />
+      <CreateEffectStyleModal
+        isOpen={showCreateEffectStyleModal}
+        onClose={() => setShowCreateEffectStyleModal(false)}
+        tokens={allVariables}
+        onCreate={(name, config) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: "create-effect-style",
+              name,
+              config
+            }
+          }, "*");
+        }}
       />
     </div >
   );

@@ -100,7 +100,20 @@ export function ImportModal({ isOpen, onClose, onImport, collections = [], langu
       // Parse Changes
       if (changesContent.trim()) {
         try {
-          parsedPayload.changes = JSON.parse(changesContent);
+          const manualChanges = JSON.parse(changesContent);
+          if (!parsedPayload.changes) {
+            parsedPayload.changes = manualChanges;
+          } else {
+            // Merge renames
+            if (manualChanges.renames) {
+              parsedPayload.changes.renames = { ...parsedPayload.changes.renames, ...manualChanges.renames };
+            }
+            // Merge deletions
+            if (manualChanges.deletions) {
+              const existingDeletions = parsedPayload.changes.deletions || [];
+              parsedPayload.changes.deletions = Array.from(new Set([...existingDeletions, ...manualChanges.deletions]));
+            }
+          }
         } catch (e) {
           if (triggeringType === 'changes') throw new Error("Invalid Changes JSON format");
         }

@@ -40,20 +40,25 @@ function generateSwift(
       const camelName = t.name.replace(/\//g, '_').replace(/[^a-zA-Z0-9_]/g, '');
       
       if (val.type === 'color' || val.type === 'alias') {
+        const metadata = [];
+        if (settings.includeIds) metadata.push(`id: ${t.id}`);
+        if (settings.includeCustomIds) metadata.push(`customId: ${t.customId || t.id}`);
+        const comment = metadata.length > 0 ? ` // ${metadata.join(', ')}` : '';
+        
         const colorValue = formatValue(val, { ...settings, colorFormat: 'rgba', aliasStrategy: 'resolve' }, tokens, '', firstModeId);
-        // Simple regex to extract RGBA if it's a color
-        const match = colorValue.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+        // ...
         if (match) {
-           const r = (parseInt(match[1]) / 255).toFixed(3);
-           const g = (parseInt(match[2]) / 255).toFixed(3);
-           const b = (parseInt(match[3]) / 255).toFixed(3);
-           const a = (match[4] ? parseFloat(match[4]) : 1).toFixed(3);
-           content += `    static let ${camelName} = Color(red: ${r}, green: ${g}, blue: ${b}, opacity: ${a})\n`;
+           // ...
+           content += `    static let ${camelName} = Color(red: ${r}, green: ${g}, blue: ${b}, opacity: ${a})${comment}\n`;
         } else {
-           content += `    static let ${camelName} = Color("${colorValue}")\n`;
+           content += `    static let ${camelName} = Color("${colorValue}")${comment}\n`;
         }
       } else if (val.type === 'float') {
-        content += `    static let ${camelName}: CGFloat = ${formatValue(val, settings, tokens, '', firstModeId)}\n`;
+        const metadata = [];
+        if (settings.includeIds) metadata.push(`id: ${t.id}`);
+        if (settings.includeCustomIds) metadata.push(`customId: ${t.customId || t.id}`);
+        const comment = metadata.length > 0 ? ` // ${metadata.join(', ')}` : '';
+        content += `    static let ${camelName}: CGFloat = ${formatValue(val, settings, tokens, '', firstModeId)}${comment}\n`;
       } else if (val.type === 'string') {
         content += `    static let ${camelName} = "${val.value}"\n`;
       } else if (val.type === 'boolean') {
